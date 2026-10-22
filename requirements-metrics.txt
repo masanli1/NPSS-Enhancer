@@ -1,0 +1,5 @@
+numpy
+scipy
+pesq
+pystoi
+imageio-ffmpeg
