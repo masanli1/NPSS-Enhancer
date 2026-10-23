@@ -1,12 +1,16 @@
-# GUI
-
-See the repository [README](../README.md).
+# GUI（v2.2）
 
 ```bash
 ./run_gui.command
-# or
+# 或
 python npss_gui.py
 ```
 
-The GUI defaults: content=music, loops=5, gate_floor=0.30 (inside the engine).
-Voice mode adds a 40% NMF blend.
+- 内容：音乐为主 / 声音为主。
+- **多统计 Gmin（v2.1）**：默认开启。
+- 16k：多统计；48k：**全带混合**（16k gate + 8k+ 保留），不再回旧 NPSS。
+- 音乐建议处理采样率选 **48k**；16k 会带限到 8k。
+- 旧循环只对非多统计模式生效；多统计固定 3-pass/2-loop。
+- 结果（16k）：音乐 13.77 / PESQ 2.487 / STOI 0.9071；声音 13.92 / PESQ 2.480 / STOI 0.9110。
+- 48k：8k+ 不降噪，只保留；仍是单声道。
+- 多统计约 6× 单扰动耗时。

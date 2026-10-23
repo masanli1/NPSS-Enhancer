@@ -1,11 +1,4 @@
 #!/usr/bin/env python3
-# Copyright (c) 2026 masanli1. All rights reserved.
-# Author: masanli1
-# Repository: https://github.com/masanli1/NPSS-Enhancer
-# License: academic/non-commercial free (LICENSE-ACADEMIC.md);
-#          commercial use requires a paid license (LICENSE-COMMERCIAL.md).
-# Contact: 2459551532@qq.com
-# SPDX-License-Identifier: LicenseRef-NPSS-Academic-1.0
 # -*- coding: utf-8 -*-
 """NPSS GUI: denoise audio files and replace the audio track of videos."""
 import os
@@ -38,7 +31,7 @@ class App:
         self._plot_img = None
         self._last_plot_path = None
         self._spec_lut = None
-        root.title("NPSS 降噪 — 最佳版（循环互补 + NMF）")
+        root.title("NPSS 降噪 — 多统计 Gmin 最佳版 v2.2")
         root.geometry("900x790")
         root.minsize(760, 620)
 
@@ -55,7 +48,7 @@ class App:
         main.pack(fill="both", expand=True)
         main.columnconfigure(1, weight=1)
 
-        ttk.Label(main, text="NPSS 降噪 — 最佳版（循环互补 + NMF）",
+        ttk.Label(main, text="NPSS 降噪 — 多统计 Gmin 最佳版 v2.2",
                   font=("PingFang SC", 16, "bold")).grid(
             row=0, column=0, columnspan=4, sticky="w", pady=(0, 12))
 
@@ -73,6 +66,7 @@ class App:
         self.backend_var = tk.StringVar(value="specsub")
         self.content_var = tk.StringVar(value="音乐为主")
         self.loops_var = tk.StringVar(value="5")
+        self.multi_var = tk.BooleanVar(value=True)
         self.workers_var = tk.StringVar(value=str(min(os.cpu_count() or 4, 8)))
         self.auto_var = tk.BooleanVar(value=True)
 
@@ -106,10 +100,13 @@ class App:
         ttk.Radiobutton(content, text="声音为主（语音增强）", value="声音为主",
                         variable=self.content_var,
                         command=self.on_content).pack(side="left", padx=4)
-        ttk.Label(content, text="循环").pack(side="left", padx=(10, 2))
+        ttk.Label(content, text="旧循环").pack(side="left", padx=(10, 2))
         ttk.Spinbox(content, from_=2, to=8, width=3,
                     textvariable=self.loops_var).pack(side="left")
-        self.content_hint = ttk.Label(content, text="16k 自动互补；48k 旧 NPSS", font=SMALL)
+        ttk.Checkbutton(content, text="多统计 Gmin（v2.2）",
+                        variable=self.multi_var,
+                        command=self.on_content).pack(side="left", padx=(8, 2))
+        self.content_hint = ttk.Label(content, text="16k/48k 多统计 + 混合", font=SMALL)
         self.content_hint.pack(side="left", padx=6)
 
         opts = ttk.Frame(main)
@@ -169,6 +166,7 @@ class App:
         self.plot_path_label = ttk.Label(self.plot_tab, text="", font=SMALL)
         self.plot_path_label.pack(fill="x")
 
+        self.on_content()
         ff = engine.find_ffmpeg()
         self.log_line("ffmpeg: " + ff if ff else
                       "警告：未找到 ffmpeg，请 pip install imageio-ffmpeg")
@@ -205,10 +203,15 @@ class App:
             self.out_var.set(p)
 
     def on_content(self, event=None):
+        multi = bool(self.multi_var.get())
         if self.content_var.get() == "声音为主":
-            self.content_hint.config(text="16k 自动互补 + NMF；48k 只跑 NPSS")
+            self.content_hint.config(
+                text="16k/48k 多统计 + NMF" if multi
+                else "16k 自动互补 + NMF；48k 旧 NPSS")
         else:
-            self.content_hint.config(text="16k 自动互补；48k 旧 NPSS")
+            self.content_hint.config(
+                text="16k/48k 多统计 + 混合" if multi
+                else "16k 自动互补；48k 旧 NPSS")
 
     def on_mode(self):
         p = self.out_var.get()
@@ -253,6 +256,11 @@ class App:
             content = "voice" if self.content_var.get() == "声音为主" else "music"
             complement = True
             loops = max(2, min(8, int(self.loops_var.get())))
+            multi = bool(self.multi_var.get())
+            if multi and proc_sr > 16000:
+                self.log_line("48k 全带：16k gate + 8k+ 保留")
+            elif content == "music" and proc_sr <= 16000:
+                self.log_line("提示：音乐会带限到 8k；建议处理采样率 48k")
             if content == "voice" and proc_sr != 16000:
                 self.log_line("提示：声音模式的 NMF 字典是 16k；当前 %d Hz 只跑 NPSS" % proc_sr)
         except Exception:
@@ -260,14 +268,15 @@ class App:
             content = "music"
             complement = True
             loops = 2
+            multi = True
         t = threading.Thread(target=self.worker,
                              args=(src, dst, mode, fam, passes, chunk, proc_sr,
                                    iterations, inject, auto, theta, support,
-                                   backend, workers, content, complement, loops),
+                                   backend, workers, content, complement, loops, multi),
                              daemon=True)
         t.start()
 
-    def worker(self, src, dst, mode, fam, passes, chunk, proc_sr, iterations, inject, auto, theta, support, backend, workers, content, complement, loops):
+    def worker(self, src, dst, mode, fam, passes, chunk, proc_sr, iterations, inject, auto, theta, support, backend, workers, content, complement, loops, multi):
         try:
             engine.process_file(
                 src, dst, mode=mode, family=fam, passes=passes,
@@ -275,6 +284,7 @@ class App:
                 iterations=iterations, inject=inject, auto=auto,
                 theta=theta, support=support, backend=backend, workers=workers,
                 content_mode=content, complement=complement, loops=loops,
+                multi_stat=multi,
                 progress=lambda d, t: self.q.put(("progress", d, t)),
                 log=lambda s: self.q.put(("log", s)))
             self.q.put(("done", dst))

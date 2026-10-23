@@ -1,11 +1,4 @@
 #!/usr/bin/env python3
-# Copyright (c) 2026 masanli1. All rights reserved.
-# Author: masanli1
-# Repository: https://github.com/masanli1/NPSS-Enhancer
-# License: academic/non-commercial free (LICENSE-ACADEMIC.md);
-#          commercial use requires a paid license (LICENSE-COMMERCIAL.md).
-# Contact: 2459551532@qq.com
-# SPDX-License-Identifier: LicenseRef-NPSS-Academic-1.0
 # -*- coding: utf-8 -*-
 """Audio/video denoising engine built on the best NPSS config (06)."""
 import os
@@ -22,6 +15,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import common as C
 import common_win as W
+import multi_stat as MS
 
 AUDIO_EXTS = {".wav", ".mp3", ".flac", ".m4a", ".aac", ".ogg", ".aiff", ".aif", ".wma"}
 VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v", ".flv", ".ts"}
@@ -101,7 +95,13 @@ def mux_video(video, audio, out, log=None):
 
 def _process_chunk(args):
     (seg, sr, family, backend, n_fft, hop, passes, theta, support,
-     iterations, inject, auto, content_mode, complement, loops) = args
+     iterations, inject, auto, content_mode, complement, loops, multi_stat) = args
+    if multi_stat:
+        y = MS.denoise_best(seg, sr, voice=(content_mode == "voice"))
+        if len(y) != len(seg):
+            y = (y[:len(seg)] if len(y) > len(seg)
+                 else np.pad(y, (0, len(seg) - len(y))))
+        return y.astype(np.float32)
     y, snr_in, S1, _ = W.cascade_contrast_win(
         seg, sr, family, wb=2, wc=4, passes=passes, theta=theta,
         support=support, backend=backend, n_fft=n_fft, hop=hop)
@@ -137,14 +137,18 @@ def _process_chunk(args):
             y = np.clip(0.6 * y[:m] + 0.4 * yn[:m], -1.0, 1.0).astype(np.float32)
         except Exception:
             pass
-    return y
+    if len(y) != len(seg):
+        y = (y[:len(seg)] if len(y) > len(seg)
+             else np.pad(y, (0, len(seg) - len(y))))
+    return y.astype(np.float32)
 
 
 def denoise_array(x, sr, family="correlated", passes=3, wb=2, wc=4,
                   theta=0.95, support=0.60, backend="specsub",
                   n_fft=2048, hop=512, chunk_sec=20.0, overlap_sec=1.0,
                   iterations=1, inject=0.0, auto=True, workers=0,
-                  content_mode="music", complement=True, loops=2, progress=None):
+                  content_mode="music", complement=True, loops=2,
+                  multi_stat=True, progress=None):
     """Chunked denoise with process-level parallelism for long files."""
     x = np.asarray(x, dtype=np.float32).reshape(-1)
     n = len(x)
@@ -153,7 +157,7 @@ def denoise_array(x, sr, family="correlated", passes=3, wb=2, wc=4,
     iterations = max(1, min(5, int(iterations)))
     chunk = int(max(5.0, float(chunk_sec)) * sr)
     args0 = (x, sr, family, backend, n_fft, hop, passes, theta, support,
-             iterations, inject, auto, content_mode, complement, loops)
+             iterations, inject, auto, content_mode, complement, loops, multi_stat)
     if n <= chunk:
         y = _process_chunk(args0)
         if progress:
@@ -169,7 +173,7 @@ def denoise_array(x, sr, family="correlated", passes=3, wb=2, wc=4,
         e = min(n, s + chunk)
         args_list.append((x[s:e], sr, family, backend, n_fft, hop, passes,
                           theta, support, iterations, inject, auto, content_mode,
-                          complement, loops))
+                          complement, loops, multi_stat))
     if workers <= 0:
         workers = min(os.cpu_count() or 4, len(args_list), 8)
     workers = max(1, min(int(workers), len(args_list), 16))
@@ -207,7 +211,8 @@ def process_file(src, dst, mode="auto", family="correlated", passes=3,
                  chunk_sec=20.0, proc_sr=16000, out_sr=None,
                  theta=0.95, support=0.60, backend="specsub",
                  iterations=1, inject=0.0, auto=True, workers=0,
-                 content_mode="music", complement=True, loops=2, progress=None, log=None):
+                 content_mode="music", complement=True, loops=2,
+                 multi_stat=True, progress=None, log=None):
     """Process an audio or video file. mode: auto/audio/video."""
     if not os.path.exists(src):
         raise FileNotFoundError(src)
@@ -224,7 +229,10 @@ def process_file(src, dst, mode="auto", family="correlated", passes=3,
         extract_audio(src, in16, proc_sr, log)
         x, sr = C.read_wav(in16)
         if log:
-            log("开始降噪：%.1f s，%s，%d 次 pass" % (len(x) / sr, family, passes))
+            if multi_stat:
+                log("开始降噪：%.1f s，多统计 6 families + single，3-pass/2-loop" % (len(x) / sr))
+            else:
+                log("开始降噪：%.1f s，%s，%d 次 pass" % (len(x) / sr, family, passes))
         n_fft = 2048 if proc_sr <= 16000 else 4096
         hop = n_fft // 4
         y = denoise_array(x, sr, family=family, passes=passes,
@@ -233,7 +241,8 @@ def process_file(src, dst, mode="auto", family="correlated", passes=3,
                           inject=inject, auto=auto, theta=theta,
                           support=support, backend=backend,
                           workers=workers, content_mode=content_mode,
-                          complement=complement, loops=loops, progress=progress)
+                          complement=complement, loops=loops,
+                          multi_stat=multi_stat, progress=progress)
         C.write_wav(out16, y, proc_sr)
         if video:
             if proc_sr == 48000:

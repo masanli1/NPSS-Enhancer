@@ -2,13 +2,12 @@
 
 Author: [masanli1](https://github.com/masanli1) · Repository: [NPSS-Enhancer](https://github.com/masanli1/NPSS-Enhancer)
 
-[中文说明](README.zh-CN.md)
+[中文说明](README.zh-CN.md) · [History](docs/history/)
 
-> **No training. No GPU. +2.3 dB SI-SDR over SpecSub.**
+> **No training. No GPU. +2.7 dB SI-SDR over SpecSub.**
 > A training-free general denoiser that raises the floor, not the SOTA ceiling.
 
-**Perturbation-stable pivot denoising for speech and music.** Training-free general mode, CPU-only, interpretable, with a GUI and a CLI (optional NMF speech blend).
-
+**Perturbation-stable pivot denoising for speech and music.** CPU-only, interpretable, GUI + CLI, with an optional NMF speech blend.
 
 ## Results (30 held-out VoiceBank-DEMAND pairs, 16 kHz)
 
@@ -16,22 +15,23 @@ Author: [masanli1](https://github.com/masanli1) · Repository: [NPSS-Enhancer](h
 |---|---|---|---|
 | noisy | 8.29 | 2.056 | 0.9156 |
 | SpecSub | 11.05 | 2.353 | 0.9168 |
-| **Music 16k** (comp k5, floor 0.3) | **13.39** | **2.514** | 0.9055 |
-| **Voice 16k** (comp k5, floor 0.3 + NMF) | **13.70** | 2.480 | **0.9104** |
-| Music 48k (legacy NPSS) | 13.02 | 2.421 | 0.9026 |
+| **Music 16k** (multi-stat blend) | **13.77** | 2.487 | 0.9071 |
+| **Voice 16k** (multi-stat blend + 40% NMF) | **13.92** | 2.480 | **0.9110** |
+| Music 48k (full-band hybrid) | not measured | — | — |
 
-- **Highest SI-SDR:** voice 13.70; **highest PESQ:** music 2.514.
-- **STOI is still below noisy/classical baselines** (0.9055/0.9104 vs 0.9156/0.9168). This is a documented quality/intelligibility trade-off.
+- **Highest SI-SDR:** voice 13.92; **highest PESQ:** music 2.487.
+- vs v2.0: music +0.38 dB SI (PESQ −0.027); voice +0.22 dB SI (PESQ unchanged).
+- **STOI is still below noisy/classical baselines** (0.9071/0.9110 vs 0.9156/0.9168). This is a documented quality/intelligibility trade-off.
 - Not SOTA: deep-learning denoisers are roughly 18–20 SI-SDR / PESQ 3+.
 - 30 pairs, one dataset, PESQ-WB; numbers are dataset-dependent.
 
 ## Features
 
-- **Complementary pivots:** stability maps from the noisy and denoised signals are averaged over 5 loops.
-- **Gate floor 0.3:** limits maximum suppression to 10.5 dB, preserving detail/transients.
-- **SpecSub backend** (default) for music/general; optional **NMF speech blend** (40%) for voice.
-- **Training-free for the general mode**; the NMF voice mode uses a small speech dictionary.
-- **Parallel chunk processing**, GUI for audio/video, waveform/spectrogram view, PESQ/STOI evaluation.
+- **Multi-stat perturbation bank:** white, Student-t, impulsive, AM, bursty, traffic — *statistics*, not just noise colour; **no voice/babble probes**.
+- **Gmin intersection:** a point must be stable under all families; removes family-specific false pivots.
+- **50/50 blend** with the single-perturbation result; voice adds 40% NMF.
+- **Training-free general mode**; optional small NMF dictionary for voice.
+- **GUI + CLI**, parallel chunks, waveform/spectrogram, PESQ/STOI evaluation.
 
 ## Install
 
@@ -51,8 +51,11 @@ pip install -r requirements-metrics.txt
 # synthetic demo (no third-party audio)
 python scripts/make_demo.py
 
-# CLI (music mode)
-python npss_parallel.py samples/demo_noisy.wav samples/demo_denoised.wav --workers 4 --loops 5
+# CLI (multi-stat default)
+python npss_parallel.py samples/demo_noisy.wav samples/demo_denoised.wav --workers 4
+
+# old single-perturbation mode
+python npss_parallel.py samples/demo_noisy.wav samples/demo_old.wav --single --workers 4
 
 # GUI
 ./run_gui.command
@@ -62,27 +65,45 @@ python GUI/npss_gui.py
 
 ## Modes
 
-| Content | Mode | Notes |
+| Content | 16k | 48k |
 |---|---|---|
-| Music / ambient / general | Music | NPSS + SpecSub, 16k or 48k; 16k uses complementary pivots |
-| English speech | Voice | Complementary pivots + 40% NMF; 16k only |
+| Music / general | multi-stat Gmin + 50/50 blend | full-band: 16k gate + 8k+ preserved |
+| Voice | multi-stat Gmin + blend + 40% NMF | full-band: 16k gate + 8k+ preserved |
 
-- 48k skips complementary pivots (not validated at 48k) and falls back to legacy NPSS.
+- GUI has a **“多统计 Gmin（v2.1）”** checkbox; default on.
+- 48k no longer falls back: 16k multi-stat for 0–8k + untouched 8k+ high band; choose 48k for music.
+- Old loop control applies only when multi-stat is off; multi-stat is fixed at 3-pass / 2-loop.
 - The NMF dictionary was trained on 60 English clean utterances; Chinese/music are not validated.
 
 ## Algorithm (short)
 
 ```
-x_k = x + a_k * sigma * n_k
-S(f,t) = (1/K) * sum_k 1[P_k(f,t) == P_0(f,t)]
-S_comp = mean(S_1, S_2, ..., S_5)
-gate = contrast_gate(S_comp, 30, 90, 0.30)
-y = ISTFT(g_specsub * gate * STFT(x))
+single:
+  S = stability(correlated noise, K=10, 3 passes, 2 loops)
+  y_single = ISTFT(g_specsub * contrast_gate(S, 30, 90, 0.30) * X)
+
+multi-stat:
+  bank = {white, student_t(3), impulsive, AM(4 Hz), bursty, traffic}
+  for f in bank:
+      S_f = stability(f, K=10, 3 passes)
+      g_f = contrast_gate(S_f, 30, 90, 0.30)
+  y_gmin = ISTFT(g_specsub * min_f(g_f) * X)
+
+music 16k: y = 0.5*y_single + 0.5*y_gmin
+voice 16k: y = 0.6*(0.5*y_single + 0.5*y_gmin) + 0.4*y_nmf
+
+48k:
+  x16 = resample(x, 16000)
+  y16 = multi_stat(x16)
+  ylow = resample(y16, 48000)
+  xh = highpass(x, 8 kHz)          # untouched
+  y = (ylow + xh) * (rms_in / rms_out)
 ```
 
-- `P_k` is the 2×2 local extremum position.
-- `S_1` is computed on the noisy signal; `S_{k+1}` is computed on the previous output.
-- Voice mode: `y = 0.6*y_comp + 0.4*y_nmf`.
+- `S` uses the 2×2 local extremum position under perturbation.
+- `min_f(g_f)` is the intersection: stable under every statistically different probe.
+- The 50/50 blend keeps single-perturbation detail and avoids over-suppression.
+- **No voice/babble probes**; structured probes would protect their own structure.
 
 See [`docs/ALGORITHM.md`](docs/ALGORITHM.md) for details.
 
@@ -101,10 +122,12 @@ python eval_baselines.py --clean data/val16/clean --noisy data/val16/noisy
 
 - Traditional, single-channel; far from deep-learning SOTA.
 - STOI is not improved over noisy/classical baselines.
+- Multi-stat costs about **6×** the single-perturbation mode; long files are slow.
 - NMF voice mode is English-specific and 16k-only.
-- 5 loops cost roughly 5× NPSS time; parallel chunking helps.
-- Only 30 held-out pairs in the reported results; PESQ/STOI are dataset-dependent.
-- The general mode is training-free; the voice mode uses a small learned dictionary.
+- 30 held-out pairs only; traffic probe is synthetic, not a real environment bank.
+- Music PESQ is slightly lower than v2.0 (2.487 vs 2.514); SI/STOI are higher.
+- 48k: 8k+ is untouched (not denoised), and output is still mono; stereo is not fixed yet.
+- No 48k clean reference; no 48k SI/PESQ.
 
 ## License (dual)
 
@@ -131,14 +154,14 @@ See [`CITATION.cff`](CITATION.cff).
 
 ```
 NPSS-Enhancer/
-├── GUI/                  # Tkinter GUI, engine, common, NMF model
-├── npss_parallel.py      # CLI (music mode)
+├── GUI/                  # GUI, engine, common, multi_stat, NMF model
+├── npss_parallel.py      # CLI (multi-stat default)
 ├── eval_official.py      # PESQ/STOI for main modes
 ├── eval_baselines.py     # PESQ/STOI for classical baselines
 ├── metrics.py            # PESQ/STOI helpers
 ├── scripts/make_demo.py  # synthetic demo generator
 ├── tests/test_smoke.py   # CI smoke test
-├── docs/                 # algorithm, results, licensing
+├── docs/                 # algorithm, results, licensing, history/v2.0
 ├── requirements.txt
 ├── requirements-metrics.txt
 ├── LICENSE / LICENSE-ACADEMIC.md / LICENSE-COMMERCIAL.md

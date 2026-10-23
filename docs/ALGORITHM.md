@@ -1,25 +1,18 @@
-# Algorithm
+# Algorithm (v2.1)
 
 ## Core idea
 
 Classical denoisers estimate a noise PSD and apply a gain. NPSS instead selects
-**structures that survive perturbation** and uses them to gate a classical
-backend.
+structures that survive perturbation and uses them to gate a classical backend.
 
-### 1. Perturbation
-
-For `K` perturbation levels:
+### 1. Perturbation and stability
 
 ```
-x_k = x + a_k * sigma * n_k
+x_k = x + a_k * sigma * p
+S(f,t) = (1/K) * sum_k 1[ P(x_k)(f,t) == P(x)(f,t) ]
 ```
 
-`n_k` is a noise family (white, correlated, or impulsive); `a_k` is a log-spaced
-level; `sigma` is the signal RMS.
-
-### 2. Local extremum position
-
-On the magnitude STFT `M = |STFT(x)|`, for each bin:
+`P` is the 2×2 local extremum position on the magnitude STFT:
 
 ```
 P(M)(f,t) =
@@ -27,79 +20,77 @@ P(M)(f,t) =
   argmin_{i,j in {0,1}} M(f+i, t+j)   otherwise
 ```
 
-### 3. Stability
-
-```
-S(f,t) = (1/K) * sum_k 1[ P_k(f,t) == P_0(f,t) ]
-```
-
 Stable positions are "pivots"; unstable positions are noise or fine detail.
 
-### 4. Complementary pivots (best version)
+### 2. Single-perturbation full pass
 
 ```
-S_1 = stability(x)
-y_1 = gate(x, S_1)
-S_2 = stability(y_1)
-...
-S_5 = stability(y_4)
-S_comp = mean(S_1, ..., S_5)
+S = stability(correlated noise, K=10, 3 passes)
+y_single = ISTFT(g_specsub * contrast_gate(S, 30, 90, 0.30) * X)
 ```
 
-The first pass is computed on the noisy signal; each later pass is computed on
-the previous output. Averaging the stability maps over 5 loops is the best
-configuration (13.39 music / 13.70 voice).
+- 2 loops of 3 passes; the second loop starts from the first output.
+- `gate_floor=0.30` limits maximum suppression to about 10.5 dB.
 
-### 5. Gate
+### 3. Multi-stat Gmin (v2.1)
 
-```
-gate = contrast_gate(S_comp, 30, 90, 0.30)
-y_comp = ISTFT(g_specsub * gate * STFT(x))
-```
-
-- `contrast_gate` is a relative percentile gate: map 30th–90th percentiles of
-  `S_comp` to [floor, 1].
-- `gate_floor=0.30` limits maximum suppression to about 10.5 dB. This preserves
-  detail/transients and recovers part of STOI.
-- `g_specsub` is the spectral-subtraction gain.
-
-### 6. Voice mode
+Use statistically different, structureless probes — **not voice/babble**:
 
 ```
-y_voice = 0.6 * y_comp + 0.4 * y_nmf
+white
+student_t(df=3)
+impulsive (sparse)
+AM(4 Hz)
+bursty (20–80 ms on)
+traffic (low-pass + 60 Hz + rumble)
 ```
 
-`y_nmf` uses a small speech dictionary (60 clean utterances, English) and a
-Wiener-like NMF mask at 512/128. Voice mode is 16 kHz only.
+For each family `f`:
+
+```
+S_f = stability(f, K=10, 3 passes)
+g_f = contrast_gate(S_f, 30, 90, 0.30)
+```
+
+Intersection gate:
+
+```
+g_min = min_f g_f
+y_gmin = ISTFT(g_specsub * g_min * X)
+```
+
+`min` keeps only points that are stable under **every** statistically different
+probe; family-specific false pivots are removed.
+
+### 4. Blend
+
+```
+y_music = 0.5 * y_single + 0.5 * y_gmin
+y_voice = 0.6 * y_music + 0.4 * y_nmf
+```
+
+- 50/50 keeps single-perturbation detail and avoids Gmin over-suppression.
+- Voice adds 40% NMF (60 English clean utterances, 16 kHz only).
+- 48 kHz falls back to legacy NPSS.
 
 ## Final parameters
 
 ```
-family=correlated
-backend=specsub
-n_fft=2048, hop=512
-passes=3, wb=2, wc=4
-theta=0.95, support=0.60
-loops=5, gate_floor=0.30
-iterations=1, inject=0
+single : family=correlated, K=10, passes=3, loops=2,
+         theta=0.95, support=0.60, gate_floor=0.30,
+         n_fft=2048, hop=512, backend=specsub
+multi  : 6 families, K=10, 3-pass, 2-loop, gate_floor=0.30
+blend  : 0.5 single + 0.5 gmin
+voice  : 0.6 blend + 0.4 NMF
 ```
 
-## Modes
+## Why it works
 
-| Content | 16 kHz | 48 kHz |
-|---|---|---|
-| Music / general | complementary + SpecSub | legacy NPSS |
-| Voice | complementary + 40% NMF | legacy NPSS |
-
-## Why it helps
-
-- Pivots are stable under perturbation; noise and fine detail are not.
-- The SpecSub backend supplies the spectral body; the pivot gate selects the
-  stable structure.
-- Complementary maps (noisy + denoised) recover part of the structure that a
-  single pass misses.
-- `gate_floor=0.30` is the best quality/intelligibility trade-off in the tested
-  range; `0.8` improves STOI further but lowers SI/PESQ.
+- Perturbation stability separates structure from noise/fine detail.
+- Different **statistics** (heavy tails, sparsity, non-stationarity) produce
+  less-correlated stability maps than different noise colours.
+- Gmin is a consensus/intersection; it removes family-specific pivots.
+- The 50/50 blend restores detail lost by the conservative intersection.
 
 ## Failure modes
 
@@ -107,5 +98,26 @@ iterations=1, inject=0
 - Very low SNR: absolute quality remains limited.
 - Percussion/low-frequency music: transients and bass can be treated as
   unstable; drums lose impact.
-- STOI is not improved over noisy/classical baselines despite SI/PESQ gains.
+- STOI is not improved over noisy/classical baselines.
 - NMF voice mode is English-specific.
+- Multi-stat is about 6× the single-perturbation cost.
+
+## v2.0
+
+The previous version used only a single correlated perturbation family. Its
+documentation is archived in `docs/history/v2.0/`.
+
+## 48 kHz full-band path (v2.2)
+
+```
+x16  = FFT_resample(x, sr -> 16000)
+y16  = multi_stat(x16)                  # 0-8k
+ylow = FFT_resample(y16, 16000 -> sr)
+xh   = highpass(x, 8000 Hz)             # 8k+ untouched
+y    = (ylow + xh) * (rms_in / rms_out)
+```
+
+- Prevents the old “16k processed then upsampled to 48k” band-limiting.
+- 0–8k is denoised; 8k+ is preserved, not denoised.
+- Output is still mono; stereo is not fixed.
+- Cost is close to 16k (one extra resample + high-pass), not 54×.
