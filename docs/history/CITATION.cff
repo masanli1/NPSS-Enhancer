@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "NPSS-Enhancer: Perturbation-Stable Pivot Denoising"
+abstract: "Training-free perturbation-stable pivot denoising with multi-stat Gmin intersection, a full-band 48k path with stereo and low-band protection, a SpecSub backend, and an optional NMF speech blend."
+authors:
+  - name: "masanli1"
+    email: "2459551532@qq.com"
+version: "2.3.0"
+date-released: "2026-10-23"
+license: "other"
+repository-code: "https://github.com/masanli1/NPSS-Enhancer"
+keywords:
+  - speech enhancement
+  - denoising
+  - perturbation stability
+  - spectral subtraction
+  - NMF

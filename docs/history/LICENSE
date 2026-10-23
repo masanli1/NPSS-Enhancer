@@ -1,0 +1,10 @@
+# License
+
+NPSS-Enhancer is **dual-licensed**:
+
+1. **Academic / non-commercial use** — free under [`LICENSE-ACADEMIC.md`](LICENSE-ACADEMIC.md).
+2. **Commercial use** — requires a paid license; see [`LICENSE-COMMERCIAL.md`](LICENSE-COMMERCIAL.md) and contact `2459551532@qq.com`.
+
+If you are unsure whether your use is commercial, it probably is: contact the author before use.
+
+The NMF dictionary (`GUI/nmf_dict.npz`) is derived from VoiceBank-DEMAND (CC BY 4.0); attribution is required. See [`NOTICE.md`](NOTICE.md).
