@@ -1,11 +1,4 @@
 #!/usr/bin/env python3
-# Copyright (c) 2026 masanli1. All rights reserved.
-# Author: masanli1
-# Repository: https://github.com/masanli1/NPSS-Enhancer
-# License: academic/non-commercial free (LICENSE-ACADEMIC.md);
-#          commercial use requires a paid license (LICENSE-COMMERCIAL.md).
-# Contact: 2459551532@qq.com
-# SPDX-License-Identifier: LicenseRef-NPSS-Academic-1.0
 # -*- coding: utf-8 -*-
 """Shared DSP for the three NPSS stages (white / impulsive / correlated)."""
 import argparse
@@ -54,6 +47,52 @@ def write_wav(path, x, sr):
         w.setsampwidth(2)
         w.setframerate(int(sr))
         w.writeframes((x * 32767.0).astype("<i2").tobytes())
+
+
+def read_wav_stereo(path):
+    """Read WAV preserving channels (PCM 16/24/32 or soundfile fallback)."""
+    try:
+        with wave.open(path, "rb") as w:
+            nch, sw, sr = w.getnchannels(), w.getsampwidth(), w.getframerate()
+            raw = w.readframes(w.getnframes())
+        if sw == 1:
+            x = (np.frombuffer(raw, dtype=np.uint8).astype(np.float32) - 128.0) / 128.0
+        elif sw == 2:
+            x = np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768.0
+        elif sw == 3:
+            b = np.frombuffer(raw, dtype=np.uint8).reshape(-1, 3).astype(np.int32)
+            v = b[:, 0] | (b[:, 1] << 8) | (b[:, 2] << 16)
+            v = np.where(v & 0x800000, v - 0x1000000, v)
+            x = v.astype(np.float32) / float(1 << 23)
+        elif sw == 4:
+            x = np.frombuffer(raw, dtype="<i4").astype(np.float32) / float(1 << 31)
+        else:
+            raise ValueError("unsupported sample width: %d" % (sw * 8))
+        x = x.reshape(-1, max(1, nch))
+        return np.ascontiguousarray(x.astype(np.float32)), int(sr)
+    except Exception:
+        if _sf is None:
+            raise
+        data, sr = _sf.read(path, dtype="float32", always_2d=True)
+        return np.ascontiguousarray(data.astype(np.float32)), int(sr)
+
+
+def write_wav_stereo(path, x, sr):
+    """Write float array (n,) or (n, ch) as 16-bit PCM, preserving up to 2 ch."""
+    x = np.asarray(x, dtype=np.float32)
+    if x.ndim == 1:
+        x = x[:, None]
+    if x.shape[1] == 1:
+        x = np.repeat(x, 2, axis=1)
+    else:
+        x = x[:, :2]
+    x = np.clip(x, -1.0, 1.0)
+    data = (x * 32767.0).astype("<i2")
+    with wave.open(path, "wb") as w:
+        w.setnchannels(int(x.shape[1]))
+        w.setsampwidth(2)
+        w.setframerate(int(sr))
+        w.writeframes(data.tobytes())
 
 
 # ---------------------------------------------------------------- STFT

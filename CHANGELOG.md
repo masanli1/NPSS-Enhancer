@@ -1,5 +1,35 @@
 # Changelog
 
+## 2.6.0 — 2026-10-24
+
+- High/low contribution roles in pivot completion.
+- Backbone anchors fill to 1.0; auxiliary fills to 0.82 only with anchor support.
+- 16k: music 13.83 / 2.498 / 0.9086; voice 13.96 / 2.484 / 0.9117.
+- Hard/soft high-low gating rejected; gate remains continuous.
+
+## 2.5.0 — 2026-10-24
+
+- Pivot completion from time/frequency neighbours (no audio recovery).
+- 16k: music 13.81 / 2.497 / 0.9086; voice 13.95 / 2.484 / 0.9117.
+- Small but consistent gain over v2.4.
+- Time-only completion weaker; time-frequency gaps used.
+
+## 2.4.0 — 2026-10-24
+
+- Soft cross-region topology: 0.5 s regions, 8 bands, adjacent-graph degree.
+- 16k: music 13.79 / 2.492 / 0.9085; voice 13.94 / 2.482 / 0.9116.
+- Small but consistent gain over v2.3.
+- Hard topology and temporal median rejected.
+
+## 2.3.0 — 2026-10-24
+
+- Stereo output: L/R processed independently; identical L/R processed once.
+- 48k music low protection (floor 0.70 below 250 Hz).
+- 16k unchanged: music 13.77 / voice 13.92.
+- 48k 20–250 Hz: −2.52 → −1.05 dB.
+- Stereo side energy −0.40 dB; width preserved.
+- 8k+ still untouched; true stereo ~2× cost.
+
 ## 2.2.0 — 2026-10-23
 
 - 48k full-band path: 16k multi-stat + untouched 8k+ high band.

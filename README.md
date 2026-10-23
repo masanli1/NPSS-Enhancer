@@ -15,13 +15,13 @@ Author: [masanli1](https://github.com/masanli1) · Repository: [NPSS-Enhancer](h
 |---|---|---|---|
 | noisy | 8.29 | 2.056 | 0.9156 |
 | SpecSub | 11.05 | 2.353 | 0.9168 |
-| **Music 16k** (multi-stat blend) | **13.77** | 2.487 | 0.9071 |
-| **Voice 16k** (multi-stat blend + 40% NMF) | **13.92** | 2.480 | **0.9110** |
+| **Music 16k** (multi-stat + topology + role completion) | **13.83** | **2.498** | **0.9086** |
+| **Voice 16k** (multi-stat + topology + role completion + 40% NMF) | **13.96** | **2.484** | **0.9117** |
 | Music 48k (full-band hybrid) | not measured | — | — |
 
-- **Highest SI-SDR:** voice 13.92; **highest PESQ:** music 2.487.
+- **Highest SI-SDR:** voice 13.96; **highest PESQ:** music 2.498.
 - vs v2.0: music +0.38 dB SI (PESQ −0.027); voice +0.22 dB SI (PESQ unchanged).
-- **STOI is still below noisy/classical baselines** (0.9071/0.9110 vs 0.9156/0.9168). This is a documented quality/intelligibility trade-off.
+- **STOI is still below noisy/classical baselines** (0.9086/0.9117 vs 0.9156/0.9168). This is a documented quality/intelligibility trade-off.
 - Not SOTA: deep-learning denoisers are roughly 18–20 SI-SDR / PESQ 3+.
 - 30 pairs, one dataset, PESQ-WB; numbers are dataset-dependent.
 
@@ -30,6 +30,8 @@ Author: [masanli1](https://github.com/masanli1) · Repository: [NPSS-Enhancer](h
 - **Multi-stat perturbation bank:** white, Student-t, impulsive, AM, bursty, traffic — *statistics*, not just noise colour; **no voice/babble probes**.
 - **Gmin intersection:** a point must be stable under all families; removes family-specific false pivots.
 - **50/50 blend** with the single-perturbation result; voice adds 40% NMF.
+- **Soft cross-region topology:** 0.5 s regions, 8 bands, adjacent-graph degree; `w=0.8+0.2·degree`.
+- **Pivot completion with roles:** high-contribution pivots are backbone anchors; low-contribution pivots are auxiliary and fill only to 0.82. No audio recovery.
 - **Training-free general mode**; optional small NMF dictionary for voice.
 - **GUI + CLI**, parallel chunks, waveform/spectrogram, PESQ/STOI evaluation.
 
@@ -67,11 +69,11 @@ python GUI/npss_gui.py
 
 | Content | 16k | 48k |
 |---|---|---|
-| Music / general | multi-stat Gmin + 50/50 blend | full-band: 16k gate + 8k+ preserved |
-| Voice | multi-stat Gmin + blend + 40% NMF | full-band: 16k gate + 8k+ preserved |
+| Music / general | multi-stat Gmin + 50/50 blend | full-band + stereo: 16k gate + 8k+ preserved |
+| Voice | multi-stat Gmin + blend + 40% NMF | full-band + stereo: 16k gate + 8k+ preserved |
 
 - GUI has a **“多统计 Gmin（v2.1）”** checkbox; default on.
-- 48k no longer falls back: 16k multi-stat for 0–8k + untouched 8k+ high band; choose 48k for music.
+- 48k no longer falls back: 16k multi-stat for 0–8k + untouched 8k+ high band; stereo L/R; choose 48k for music.
 - Old loop control applies only when multi-stat is off; multi-stat is fixed at 3-pass / 2-loop.
 - The NMF dictionary was trained on 60 English clean utterances; Chinese/music are not validated.
 
@@ -92,12 +94,25 @@ multi-stat:
 music 16k: y = 0.5*y_single + 0.5*y_gmin
 voice 16k: y = 0.6*(0.5*y_single + 0.5*y_gmin) + 0.4*y_nmf
 
+topology:
+  regions = 0.5 s; features = 8-band mean stability
+  graph = adjacent regions; w = 0.8 + 0.2*degree/max
+  S = S * w
+
+completion:
+  high = S >= 0.95 and has a neighbouring pivot -> backbone, fill to 1.0
+  low  = 0.65 <= S < 0.95 -> auxiliary, fill to 0.82
+  no audio recovery; gate stays continuous
+
 48k:
   x16 = resample(x, 16000)
   y16 = multi_stat(x16)
   ylow = resample(y16, 48000)
   xh = highpass(x, 8 kHz)          # untouched
   y = (ylow + xh) * (rms_in / rms_out)
+
+stereo: process L/R independently; if L==R, process once and duplicate.
+48k music low protection: floor 0.70 below 250 Hz.
 ```
 
 - `S` uses the 2×2 local extremum position under perturbation.
@@ -125,9 +140,10 @@ python eval_baselines.py --clean data/val16/clean --noisy data/val16/noisy
 - Multi-stat costs about **6×** the single-perturbation mode; long files are slow.
 - NMF voice mode is English-specific and 16k-only.
 - 30 held-out pairs only; traffic probe is synthetic, not a real environment bank.
-- Music PESQ is slightly lower than v2.0 (2.487 vs 2.514); SI/STOI are higher.
-- 48k: 8k+ is untouched (not denoised), and output is still mono; stereo is not fixed yet.
+- Music PESQ is slightly lower than v2.0 (2.498 vs 2.514); SI/STOI are higher.
+- 48k: 8k+ is untouched (not denoised); stereo is preserved by processing L/R separately; low band is still about 1 dB down.
 - No 48k clean reference; no 48k SI/PESQ.
+- True stereo costs about 2×; identical L/R is detected and processed once.
 
 ## License (dual)
 

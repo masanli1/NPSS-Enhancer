@@ -31,7 +31,7 @@ class App:
         self._plot_img = None
         self._last_plot_path = None
         self._spec_lut = None
-        root.title("NPSS 降噪 — 多统计 Gmin 最佳版 v2.2")
+        root.title("NPSS 降噪 — 多统计 Gmin 最佳版 v2.6")
         root.geometry("900x790")
         root.minsize(760, 620)
 
@@ -48,7 +48,7 @@ class App:
         main.pack(fill="both", expand=True)
         main.columnconfigure(1, weight=1)
 
-        ttk.Label(main, text="NPSS 降噪 — 多统计 Gmin 最佳版 v2.2",
+        ttk.Label(main, text="NPSS 降噪 — 多统计 Gmin 最佳版 v2.6",
                   font=("PingFang SC", 16, "bold")).grid(
             row=0, column=0, columnspan=4, sticky="w", pady=(0, 12))
 
@@ -103,10 +103,10 @@ class App:
         ttk.Label(content, text="旧循环").pack(side="left", padx=(10, 2))
         ttk.Spinbox(content, from_=2, to=8, width=3,
                     textvariable=self.loops_var).pack(side="left")
-        ttk.Checkbutton(content, text="多统计 Gmin（v2.2）",
+        ttk.Checkbutton(content, text="多统计 Gmin（v2.6）",
                         variable=self.multi_var,
                         command=self.on_content).pack(side="left", padx=(8, 2))
-        self.content_hint = ttk.Label(content, text="16k/48k 多统计 + 混合", font=SMALL)
+        self.content_hint = ttk.Label(content, text="16k/48k 多统计 + 拓扑 + 高/低贡献补全；立体声", font=SMALL)
         self.content_hint.pack(side="left", padx=6)
 
         opts = ttk.Frame(main)
@@ -206,11 +206,11 @@ class App:
         multi = bool(self.multi_var.get())
         if self.content_var.get() == "声音为主":
             self.content_hint.config(
-                text="16k/48k 多统计 + NMF" if multi
+                text="16k/48k 多统计 + 拓扑 + 高/低贡献补全 + NMF；立体声" if multi
                 else "16k 自动互补 + NMF；48k 旧 NPSS")
         else:
             self.content_hint.config(
-                text="16k/48k 多统计 + 混合" if multi
+                text="16k/48k 多统计 + 拓扑 + 高/低贡献补全；立体声" if multi
                 else "16k 自动互补；48k 旧 NPSS")
 
     def on_mode(self):
@@ -258,7 +258,7 @@ class App:
             loops = max(2, min(8, int(self.loops_var.get())))
             multi = bool(self.multi_var.get())
             if multi and proc_sr > 16000:
-                self.log_line("48k 全带：16k gate + 8k+ 保留")
+                self.log_line("48k 全带 + 立体声 + 跨区拓扑：16k gate + 8k+ 保留")
             elif content == "music" and proc_sr <= 16000:
                 self.log_line("提示：音乐会带限到 8k；建议处理采样率 48k")
             if content == "voice" and proc_sr != 16000:

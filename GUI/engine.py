@@ -68,13 +68,13 @@ def run_ffmpeg(args, log=None):
     return r
 
 
-def extract_audio(src, dst, sr=16000, log=None):
-    run_ffmpeg(["-i", src, "-vn", "-ac", "1", "-ar", str(sr),
+def extract_audio(src, dst, sr=16000, log=None, channels=1):
+    run_ffmpeg(["-i", src, "-vn", "-ac", str(int(channels)), "-ar", str(sr),
                 "-c:a", "pcm_s16le", dst], log)
 
 
-def resample(src, dst, sr, log=None):
-    run_ffmpeg(["-i", src, "-ac", "1", "-ar", str(sr),
+def resample(src, dst, sr, log=None, channels=2):
+    run_ffmpeg(["-i", src, "-ac", str(int(channels)), "-ar", str(sr),
                 "-c:a", "pcm_s16le", dst], log)
 
 
@@ -225,9 +225,15 @@ def process_file(src, dst, mode="auto", family="correlated", passes=3,
         in16 = os.path.join(tmp, "in16.wav")
         out16 = os.path.join(tmp, "out16.wav")
         if log:
-            log("提取音频 → %d Hz 单声道" % proc_sr)
-        extract_audio(src, in16, proc_sr, log)
-        x, sr = C.read_wav(in16)
+            log("提取音频 → %d Hz 立体声" % proc_sr)
+        extract_audio(src, in16, proc_sr, log, channels=2)
+        x, sr = C.read_wav_stereo(in16)
+        if x.ndim == 1:
+            x = x[:, None]
+        if x.shape[1] > 2:
+            x = x[:, :2]
+        if x.shape[1] == 1:
+            x = np.repeat(x, 2, axis=1)
         if log:
             if multi_stat:
                 log("开始降噪：%.1f s，多统计 6 families + single，3-pass/2-loop" % (len(x) / sr))
@@ -235,15 +241,34 @@ def process_file(src, dst, mode="auto", family="correlated", passes=3,
                 log("开始降噪：%.1f s，%s，%d 次 pass" % (len(x) / sr, family, passes))
         n_fft = 2048 if proc_sr <= 16000 else 4096
         hop = n_fft // 4
-        y = denoise_array(x, sr, family=family, passes=passes,
-                          n_fft=n_fft, hop=hop,
-                          chunk_sec=chunk_sec, iterations=iterations,
-                          inject=inject, auto=auto, theta=theta,
-                          support=support, backend=backend,
-                          workers=workers, content_mode=content_mode,
-                          complement=complement, loops=loops,
-                          multi_stat=multi_stat, progress=progress)
-        C.write_wav(out16, y, proc_sr)
+        if np.allclose(x[:, 0], x[:, 1]):
+            y0 = denoise_array(x[:, 0], sr, family=family, passes=passes,
+                               n_fft=n_fft, hop=hop,
+                               chunk_sec=chunk_sec, iterations=iterations,
+                               inject=inject, auto=auto, theta=theta,
+                               support=support, backend=backend,
+                               workers=workers, content_mode=content_mode,
+                               complement=complement, loops=loops,
+                               multi_stat=multi_stat, progress=progress)
+            y = np.repeat(y0[:, None], 2, axis=1).astype(np.float32)
+        else:
+            ys = []
+            for ci in range(2):
+                def cp(d, t, _ci=ci):
+                    if progress:
+                        progress(_ci + (d / max(1, t)), 2)
+                yc = denoise_array(x[:, ci], sr, family=family, passes=passes,
+                                   n_fft=n_fft, hop=hop,
+                                   chunk_sec=chunk_sec, iterations=iterations,
+                                   inject=inject, auto=auto, theta=theta,
+                                   support=support, backend=backend,
+                                   workers=workers, content_mode=content_mode,
+                                   complement=complement, loops=loops,
+                                   multi_stat=multi_stat, progress=cp)
+                ys.append(yc)
+            nmin = min(len(ys[0]), len(ys[1]), len(x))
+            y = np.stack([ys[0][:nmin], ys[1][:nmin]], axis=1).astype(np.float32)
+        C.write_wav_stereo(out16, y, proc_sr)
         if video:
             if proc_sr == 48000:
                 out48 = out16
@@ -251,7 +276,7 @@ def process_file(src, dst, mode="auto", family="correlated", passes=3,
                 out48 = os.path.join(tmp, "out48.wav")
                 if log:
                     log("重采样到 48 kHz 并封装视频")
-                resample(out16, out48, 48000, log)
+                resample(out16, out48, 48000, log, channels=2)
             mux_video(src, out48, dst, log)
         else:
             target = int(out_sr) if out_sr else proc_sr

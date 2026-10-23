@@ -64,3 +64,47 @@ No 48k clean reference, so no SI/PESQ. A 12-second music excerpt (48k) shows:
 - RMS matched to input.
 - 8k+ is untouched, not denoised; high-frequency noise remains.
 - Mono output; stereo not fixed.
+
+## v2.3 stereo / low protection
+
+- 16k unchanged: music 13.77 / 2.487 / 0.9071; voice 13.92 / 2.480 / 0.9110.
+- 48k music 12 s test: 20–250 Hz **−1.05 dB** (v2.2: −2.52 dB).
+- Stereo side energy: **−0.40 dB**; L/R correlation 0.979 → 0.980.
+- 8–16k remains +1.0 to +1.1 dB (untouched high band).
+- True stereo costs about 2×.
+
+## v2.4 soft cross-region topology
+
+| Mode | SI-SDR | PESQ | STOI |
+|---|---|---|---|
+| v2.3 music | 13.77 | 2.487 | 0.9071 |
+| **v2.4 music** | **13.79** | **2.492** | **0.9085** |
+| v2.3 voice | 13.92 | 2.480 | 0.9110 |
+| **v2.4 voice** | **13.94** | **2.482** | **0.9116** |
+
+- Small but consistent gain across all three metrics.
+- Hard topology weights and temporal median were worse; soft 0.8+0.2·degree is used.
+
+## v2.5 pivot completion
+
+| Mode | SI-SDR | PESQ | STOI |
+|---|---|---|---|
+| v2.4 music | 13.79 | 2.492 | 0.9085 |
+| **v2.5 music** | **13.81** | **2.497** | **0.9086** |
+| v2.4 voice | 13.94 | 2.482 | 0.9116 |
+| **v2.5 voice** | **13.95** | **2.484** | **0.9117** |
+
+- Small but consistent gain; completion is cheap.
+- Time-only completion was weaker; time-frequency gap filling is used.
+
+## v2.6 high/low contribution roles
+
+| Mode | SI-SDR | PESQ | STOI |
+|---|---|---|---|
+| v2.5 music | 13.81 | 2.497 | 0.9086 |
+| **v2.6 music** | **13.83** | **2.498** | **0.9086** |
+| v2.5 voice | 13.95 | 2.484 | 0.9117 |
+| **v2.6 voice** | **13.96** | **2.484** | **0.9117** |
+
+- Hard high/low gating was worse; soft weighting traded PESQ for SI.
+- Role separation in completion gives a small stable gain.

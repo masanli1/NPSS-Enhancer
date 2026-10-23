@@ -121,3 +121,41 @@ y    = (ylow + xh) * (rms_in / rms_out)
 - 0–8k is denoised; 8k+ is preserved, not denoised.
 - Output is still mono; stereo is not fixed.
 - Cost is close to 16k (one extra resample + high-pass), not 54×.
+
+## Stereo + low protection (v2.3)
+
+- **Stereo:** extract 2 channels, process L/R independently, write stereo.
+  If L and R are identical (mono source), process once and duplicate.
+- **48k music low protection:** gate floor is raised to 0.70 below 250 Hz;
+  20–250 Hz change improves from about −2.5 dB to −1.05 dB.
+- **16k:** low floor stays 0.30 (music/voice), so 16k SI/PESQ is unchanged.
+- **48k voice:** low floor 0.30; 8k+ is still untouched.
+
+## Cross-region topology (v2.4)
+
+- Split the time axis into 0.5 s regions (16 frames at 16k/hop 512).
+- Per region, take the mean stability in 8 frequency bands → feature vector.
+- Build an adjacency graph between neighbouring regions; `degree = cos(feat_i, feat_{i-1}) + cos(feat_i, feat_{i+1})`.
+- Soft weight: `w = 0.8 + 0.2 * degree / max_degree`; `S = S * w` before the gate.
+- Uses both previous and next regions; the weight is deliberately soft to avoid over-smoothing.
+- Temporal median over ±0.5 s was tested and **rejected**: it over-smooths and hurts SI/STOI.
+
+## Pivot completion (v2.5)
+
+After topology weighting, fill pivots that should exist but were not detected:
+
+- Same frequency: if pivots at `t-1` and `t+1` (or `t-2`/`t+2`) and `S > 0.60` → fill.
+- Adjacent frequencies: if pivots at `f-1` and `f+1` and `S > 0.70` → fill.
+- Set filled `S` to `THETA`; no audio recovery.
+- This is inference from pivot relationships, not interpolation/reconstruction.
+- Completion is applied before topology weighting; it uses both past and future frames.
+
+## High/low contribution roles (v2.6)
+
+- High contribution: `S >= 0.95` and at least one neighbouring pivot → backbone anchor.
+- Low contribution: `0.65 <= S < 0.95` → auxiliary.
+- Completion:
+  - backbone anchors fill to `THETA = 0.95`;
+  - low-contribution bins fill to **0.82** only when both sides have a backbone anchor.
+- The gate remains continuous; no hard high/low gating.
+- Hard gating was tested and was worse; role separation is applied only to completion.

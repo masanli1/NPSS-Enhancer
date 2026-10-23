@@ -19,6 +19,21 @@ NFFT, HOP = 2048, 512
 THETA, SUPPORT, FLOOR = 0.95, 0.60, 0.30
 K, BASE = 10, 0.05
 PASSES = 3
+LOW_HZ = 250.0
+LOW_FLOOR_16 = 0.30
+LOW_FLOOR_48_MUSIC = 0.70
+LOW_FLOOR_VOICE = 0.30
+
+
+def _protect_low(gate, n_fft, sr, floor):
+    if floor <= 0:
+        return gate
+    g = gate.copy()
+    f = np.fft.rfftfreq(n_fft, 1.0 / float(sr))
+    m = f < LOW_HZ
+    if np.any(m):
+        g[m, :] = np.maximum(g[m, :], float(floor))
+    return g
 
 
 def _norm(x):
@@ -107,7 +122,63 @@ def _cascade_ext(x, M, p, gb, X, fi, seed=0, passes=PASSES):
     return np.mean(S_list, axis=0).astype(np.float32)
 
 
-def single_full(x):
+def _region_weights(S, nr=16, bands=8):
+    """Soft cross-region topology weight: 0.8 + 0.2 * normalized degree."""
+    F, T = S.shape
+    R = int(np.ceil(T / float(nr)))
+    pad = np.pad(S, ((0, 0), (0, R * nr - T)), mode="edge")
+    blocks = pad.reshape(F, R, nr)
+    edges = np.linspace(0, F, bands + 1).astype(int)
+    feat = np.zeros((R, bands), dtype=np.float32)
+    for b in range(bands):
+        lo, hi = edges[b], max(edges[b] + 1, edges[b + 1])
+        feat[:, b] = blocks[lo:hi].mean(axis=(0, 2))
+    feat = feat - feat.mean(axis=1, keepdims=True)
+    feat = feat / (np.linalg.norm(feat, axis=1, keepdims=True) + 1e-8)
+    deg = np.zeros(R, dtype=np.float32)
+    for r in range(R):
+        if r > 0:
+            deg[r] += max(0.0, float(feat[r] @ feat[r - 1]))
+        if r < R - 1:
+            deg[r] += max(0.0, float(feat[r] @ feat[r + 1]))
+    w = 0.8 + 0.2 * deg / (deg.max() + 1e-8)
+    frames = np.repeat(w, nr)[:T]
+    return np.tile(frames[None, :], (F, 1)).astype(np.float32)
+
+
+def _complete_pivots(S):
+    """High-contribution pivots fill full; low-contribution only auxiliary."""
+    F, T = S.shape
+    piv = S >= THETA
+    anchor = np.zeros_like(piv)
+    if T > 1:
+        anchor[:, 1:] |= piv[:, :-1]
+        anchor[:, :-1] |= piv[:, 1:]
+    anchor &= piv
+    fill = np.zeros_like(piv)
+    for g in (1, 2):
+        if T > 2 * g:
+            both = piv[:, :T - 2 * g] & piv[:, 2 * g:]
+            side = anchor[:, :T - 2 * g] | anchor[:, 2 * g:]
+            fill[:, g:T - g] |= both & side
+    fill &= S >= 0.60
+    if F > 2:
+        both = piv[:-2, :] & piv[2:, :]
+        side = anchor[:-2, :] | anchor[2:, :]
+        fill[1:-1, :] |= both & side & (S[1:-1, :] >= 0.60)
+    out = S.copy()
+    out[fill] = np.maximum(out[fill], THETA)
+    # auxiliary: low-contribution bin between two high pivots
+    lowm = (S >= 0.65) & (~piv)
+    aux = np.zeros_like(piv)
+    if T > 2:
+        aux[:, 1:-1] |= lowm[:, 1:-1] & piv[:, :-2] & piv[:, 2:]
+    if F > 2:
+        aux[1:-1, :] |= lowm[1:-1, :] & piv[:-2, :] & piv[2:, :]
+    out[aux] = np.maximum(out[aux], 0.82)
+    return out
+
+def single_full(x, low_floor=LOW_FLOOR_16):
     y1, _, S1, _ = W.cascade_contrast_win(
         x, SR, "correlated", wb=2, wc=4, passes=PASSES,
         theta=THETA, support=SUPPORT, n_fft=NFFT, hop=HOP,
@@ -117,22 +188,30 @@ def single_full(x):
         theta=THETA, support=SUPPORT, n_fft=NFFT, hop=HOP,
         backend="specsub", gate_floor=FLOOR)[2]
     X, M, gb, _, _, _ = C.prepare(x, NFFT, HOP, 1.5, 0.05, "specsub")
-    return C.istft(gb * C.contrast_gate(0.5 * (S1 + S2), 30, 90, FLOOR) * X,
-                   len(x), NFFT, HOP)
+    S = 0.5 * (S1 + S2)
+    S = _complete_pivots(S)
+    S = S * _region_weights(S)
+    gate = C.contrast_gate(S, 30, 90, FLOOR)
+    gate = _protect_low(gate, NFFT, SR, low_floor)
+    return C.istft(gb * gate * X, len(x), NFFT, HOP)
 
 
-def gmin_full(x, seed=7):
+def gmin_full(x, seed=7, low_floor=LOW_FLOOR_16):
     X, M, gb, _, _, _ = C.prepare(x, NFFT, HOP, 1.5, 0.05, "specsub")
     bank = make_stats_bank(len(x), seed)
     S1 = {k: _cascade_ext(x, M, p, gb, X, i, seed=seed)
           for i, (k, p) in enumerate(bank.items())}
     g1 = np.min(np.stack([C.contrast_gate(S1[k], 30, 90, FLOOR) for k in S1], 0), axis=0)
+    g1 = _protect_low(g1, NFFT, SR, low_floor)
     y1 = C.istft(gb * g1 * X, len(x), NFFT, HOP)
     M1 = np.abs(C.stft(y1, NFFT, HOP))
     S2 = {k: _cascade_ext(y1, M1, p, gb, X, i, seed=seed + 100)
           for i, (k, p) in enumerate(bank.items())}
-    S = {k: 0.5 * (S1[k] + S2[k]) for k in S1}
+    S = {k: _complete_pivots(0.5 * (S1[k] + S2[k])) for k in S1}
+    w = _region_weights(np.mean(np.stack(list(S.values()), 0), axis=0))
+    S = {k: S[k] * w for k in S}
     g = np.min(np.stack([C.contrast_gate(S[k], 30, 90, FLOOR) for k in S], 0), axis=0)
+    g = _protect_low(g, NFFT, SR, low_floor)
     return C.istft(gb * g * X, len(x), NFFT, HOP)
 
 
@@ -164,12 +243,13 @@ def _fit_len(y, n):
 
 
 def denoise_fullband(x, sr=48000, voice=False, seed=7):
-    """v2.2: 16k multi-stat for 0-8k + untouched 8k+ high band; full-band out."""
+    """v2.6: 16k multi-stat for 0-8k + untouched 8k+ high band; full-band out."""
     x = np.asarray(x, dtype=np.float32).reshape(-1)
     if len(x) == 0:
         return x
     x16 = _resample_fft(x, sr, 16000)
-    y16 = denoise_best(x16, 16000, voice=voice, seed=seed)
+    low = LOW_FLOOR_VOICE if voice else LOW_FLOOR_48_MUSIC
+    y16 = denoise_best(x16, 16000, voice=voice, seed=seed, low_floor=low)
     ylow = _resample_fft(y16, 16000, sr)
     n_fft = 4096 if sr >= 32000 else 2048
     hop = n_fft // 4
@@ -188,13 +268,15 @@ def denoise_fullband(x, sr=48000, voice=False, seed=7):
     return np.clip(y, -1.0, 1.0).astype(np.float32)
 
 
-def denoise_best(x, sr=SR, voice=False, seed=7):
-    """v2.1: 50% single + 50% multi-stat Gmin; voice adds 40% NMF."""
+def denoise_best(x, sr=SR, voice=False, seed=7, low_floor=None):
+    """v2.6: 50% single + topology + role completion + topology + pivot completion + soft cross-region topology + 50% multi-stat Gmin; voice adds 40% NMF."""
     x = np.asarray(x, dtype=np.float32).reshape(-1)
     if int(sr) != SR:
         return denoise_fullband(x, sr, voice=voice, seed=seed)
-    ys = single_full(x)
-    yg = gmin_full(x, seed=seed)
+    if low_floor is None:
+        low_floor = LOW_FLOOR_VOICE if voice else LOW_FLOOR_16
+    ys = single_full(x, low_floor=low_floor)
+    yg = gmin_full(x, seed=seed, low_floor=low_floor)
     yb = 0.5 * (ys + yg)
     if voice:
         yn = nmf_blend.enhance(x)
