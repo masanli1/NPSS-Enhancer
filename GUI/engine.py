@@ -6,7 +6,7 @@ import sys
 import shutil
 import tempfile
 import subprocess
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 import nmf_blend
 
 import numpy as np
@@ -95,13 +95,20 @@ def mux_video(video, audio, out, log=None):
 
 def _process_chunk(args):
     (seg, sr, family, backend, n_fft, hop, passes, theta, support,
-     iterations, inject, auto, content_mode, complement, loops, multi_stat) = args
+     iterations, inject, auto, content_mode, complement, loops, multi_stat,
+     fast, target_nr_db, target_dose, target_weights, view_profile,
+     view_beta) = args
+    info = {}
     if multi_stat:
-        y = MS.denoise_best(seg, sr, voice=(content_mode == "voice"))
+        y = MS.denoise_best(seg, sr, voice=(content_mode == "voice"), fast=fast,
+                            target_nr_db=target_nr_db,
+                            target_dose=target_dose,
+                            target_weights=target_weights, info_out=info,
+                            view_profile=view_profile, view_beta=view_beta)
         if len(y) != len(seg):
             y = (y[:len(seg)] if len(y) > len(seg)
                  else np.pad(y, (0, len(seg) - len(y))))
-        return y.astype(np.float32)
+        return y.astype(np.float32), info
     y, snr_in, S1, _ = W.cascade_contrast_win(
         seg, sr, family, wb=2, wc=4, passes=passes, theta=theta,
         support=support, backend=backend, n_fft=n_fft, hop=hop)
@@ -140,7 +147,7 @@ def _process_chunk(args):
     if len(y) != len(seg):
         y = (y[:len(seg)] if len(y) > len(seg)
              else np.pad(y, (0, len(seg) - len(y))))
-    return y.astype(np.float32)
+    return y.astype(np.float32), info
 
 
 def denoise_array(x, sr, family="correlated", passes=3, wb=2, wc=4,
@@ -148,18 +155,48 @@ def denoise_array(x, sr, family="correlated", passes=3, wb=2, wc=4,
                   n_fft=2048, hop=512, chunk_sec=20.0, overlap_sec=1.0,
                   iterations=1, inject=0.0, auto=True, workers=0,
                   content_mode="music", complement=True, loops=2,
-                  multi_stat=True, progress=None):
-    """Chunked denoise with process-level parallelism for long files."""
+                  multi_stat=True, fast=False, progress=None,
+                  target_nr_db=None, info_out=None,
+                  view_profile="freq", view_beta=0.5):
+    """Chunked denoise with process-level parallelism for long files.
+
+    ``target_nr_db`` enables 定果寻因: a one-slice calibration solves the dose,
+    then every chunk is processed with that same dose, so the noise floor lands
+    on the target without chunk-to-chunk pumping.
+    """
     x = np.asarray(x, dtype=np.float32).reshape(-1)
     n = len(x)
     if n == 0:
         return x
+    if target_nr_db is not None and not multi_stat:
+        print("警告：目标降噪只在多统计 Gmin 下可用，已忽略目标 %.1f dB"
+              % float(target_nr_db), file=sys.stderr)
+        target_nr_db = None
     iterations = max(1, min(5, int(iterations)))
     chunk = int(max(5.0, float(chunk_sec)) * sr)
+    target_dose = None
+    target_weights = None
+    if target_nr_db is not None and multi_stat and n > chunk:
+        import target_nr as TG
+        cal = x[max(0, n // 2 - 4 * sr): n // 2 + 4 * sr]
+        dose, wts, cinfo = TG.calibrate(cal, sr, target_db=float(target_nr_db),
+                                       fast=fast)
+        target_dose, target_weights = float(dose), dict(wts)
+        if progress:
+            progress(0, 1)
+        if info_out is not None:
+            info_out.clear()
+            info_out.update({"calibration": cinfo, "dose": target_dose,
+                             "weights": target_weights, "target_db": float(target_nr_db)})
     args0 = (x, sr, family, backend, n_fft, hop, passes, theta, support,
-             iterations, inject, auto, content_mode, complement, loops, multi_stat)
+             iterations, inject, auto, content_mode, complement, loops, multi_stat,
+             fast, target_nr_db, target_dose, target_weights,
+             view_profile, view_beta)
     if n <= chunk:
-        y = _process_chunk(args0)
+        y, info = _process_chunk(args0)
+        if info_out is not None:
+            info_out.clear()
+            info_out.update(info)
         if progress:
             progress(1, 1)
         return y.astype(np.float32)
@@ -173,7 +210,9 @@ def denoise_array(x, sr, family="correlated", passes=3, wb=2, wc=4,
         e = min(n, s + chunk)
         args_list.append((x[s:e], sr, family, backend, n_fft, hop, passes,
                           theta, support, iterations, inject, auto, content_mode,
-                          complement, loops, multi_stat))
+                          complement, loops, multi_stat, fast,
+                          target_nr_db, target_dose, target_weights,
+                          view_profile, view_beta))
     if workers <= 0:
         workers = min(os.cpu_count() or 4, len(args_list), 8)
     workers = max(1, min(int(workers), len(args_list), 16))
@@ -185,15 +224,23 @@ def denoise_array(x, sr, family="correlated", passes=3, wb=2, wc=4,
             if progress:
                 progress(i + 1, total)
     else:
-        with ProcessPoolExecutor(max_workers=workers) as ex:
-            for i, ys in enumerate(ex.map(_process_chunk, args_list)):
-                results.append(ys)
+        try:
+            with ProcessPoolExecutor(max_workers=workers) as ex:
+                for i, ys in enumerate(ex.map(_process_chunk, args_list)):
+                    results.append(ys)
+                    if progress:
+                        progress(i + 1, total)
+        except Exception:
+            # Frozen app / platform fallback: run serially if the pool dies.
+            results = []
+            for i, a in enumerate(args_list):
+                results.append(_process_chunk(a))
                 if progress:
                     progress(i + 1, total)
 
     y = np.zeros(n, dtype=np.float64)
     wsum = np.zeros(n, dtype=np.float64)
-    for s, ys in zip(starts, results):
+    for s, (ys, _info) in zip(starts, results):
         e = min(n, s + chunk)
         w = np.ones(e - s, dtype=np.float64)
         ov = min(overlap, (e - s) // 2)
@@ -204,6 +251,11 @@ def denoise_array(x, sr, family="correlated", passes=3, wb=2, wc=4,
         y[s:e] += ys * w
         wsum[s:e] += w
     y /= np.maximum(wsum, 1e-8)
+    if info_out is not None and "achieved_db" not in info_out:
+        for _, inf in results:
+            if inf:
+                info_out.update({k: v for k, v in inf.items() if k != "views"})
+                break
     return y.astype(np.float32)
 
 
@@ -212,8 +264,14 @@ def process_file(src, dst, mode="auto", family="correlated", passes=3,
                  theta=0.95, support=0.60, backend="specsub",
                  iterations=1, inject=0.0, auto=True, workers=0,
                  content_mode="music", complement=True, loops=2,
-                 multi_stat=True, progress=None, log=None):
-    """Process an audio or video file. mode: auto/audio/video."""
+                 multi_stat=True, fast=False, progress=None, log=None,
+                 target_nr_db=None, info_out=None,
+                 view_profile="freq", view_beta=0.5):
+    """Process an audio or video file. mode: auto/audio/video.
+
+    ``target_nr_db`` turns on 定果寻因: instead of fixed thresholds, the 16 kHz
+    noise floor is driven to that many dB of attenuation (see target_nr.py).
+    """
     if not os.path.exists(src):
         raise FileNotFoundError(src)
     if not find_ffmpeg():
@@ -249,23 +307,31 @@ def process_file(src, dst, mode="auto", family="correlated", passes=3,
                                support=support, backend=backend,
                                workers=workers, content_mode=content_mode,
                                complement=complement, loops=loops,
-                               multi_stat=multi_stat, progress=progress)
+                               multi_stat=multi_stat, progress=progress,
+                               target_nr_db=target_nr_db, info_out=info_out,
+                               view_profile=view_profile, view_beta=view_beta)
             y = np.repeat(y0[:, None], 2, axis=1).astype(np.float32)
         else:
-            ys = []
-            for ci in range(2):
+            def run_ch(ci):
                 def cp(d, t, _ci=ci):
                     if progress:
                         progress(_ci + (d / max(1, t)), 2)
-                yc = denoise_array(x[:, ci], sr, family=family, passes=passes,
-                                   n_fft=n_fft, hop=hop,
-                                   chunk_sec=chunk_sec, iterations=iterations,
-                                   inject=inject, auto=auto, theta=theta,
-                                   support=support, backend=backend,
-                                   workers=workers, content_mode=content_mode,
-                                   complement=complement, loops=loops,
-                                   multi_stat=multi_stat, progress=cp)
-                ys.append(yc)
+                return denoise_array(x[:, ci], sr, family=family, passes=passes,
+                                     n_fft=n_fft, hop=hop,
+                                     chunk_sec=chunk_sec, iterations=iterations,
+                                     inject=inject, auto=auto, theta=theta,
+                                     support=support, backend=backend,
+                                     workers=max(1, workers // 2),
+                                     content_mode=content_mode,
+                                     complement=complement, loops=loops,
+                                     multi_stat=multi_stat, fast=fast,
+                                     progress=cp,
+                                     target_nr_db=target_nr_db,
+                                     info_out=info_out,
+                                     view_profile=view_profile,
+                                     view_beta=view_beta)
+            with ThreadPoolExecutor(max_workers=2) as ex:
+                ys = list(ex.map(run_ch, [0, 1]))
             nmin = min(len(ys[0]), len(ys[1]), len(x))
             y = np.stack([ys[0][:nmin], ys[1][:nmin]], axis=1).astype(np.float32)
         C.write_wav_stereo(out16, y, proc_sr)
@@ -285,6 +351,12 @@ def process_file(src, dst, mode="auto", family="correlated", passes=3,
             else:
                 shutil.copyfile(out16, dst)
         if log:
+            if info_out and "achieved_db" in info_out:
+                log("目标 %.1f dB → 实测 %.2f dB（dose c=%.3f，%s）" % (
+                    float(info_out.get("target_db") or 0.0),
+                    float(info_out["achieved_db"]),
+                    float(info_out.get("dose") or 0.0),
+                    "命中" if info_out.get("hit") else "未命中"))
             log("完成：" + dst)
         return dst
     finally:

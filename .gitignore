@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.DS_Store
+.venv/
+venv/
+env/
+data/*
+!data/README.md
+out/
+dist/
+build/
+*.mp4
+*.mov
+samples/*.wav
+!samples/demo_clean.wav
+!samples/demo_noisy.wav
+.pytest_cache/

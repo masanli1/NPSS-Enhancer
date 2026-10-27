@@ -23,7 +23,7 @@ pytest -q
 
 - Keep the code dependency-light (NumPy/SciPy only where needed).
 - Add a test for behavior changes.
-- Do not change the reported numbers without updating `docs/RESULTS.md`.
+- Do not change the reported numbers without updating `NPSS-Enhancer-v2.7.0-完整文档.md`.
 - Do not add a "SOTA" claim; this is a traditional baseline.
 
 ## Pull requests

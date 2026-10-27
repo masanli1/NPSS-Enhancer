@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """Evaluate PESQ/STOI on the 30 official held-out files."""
-import os, sys, csv
+import os, sys, csv, argparse
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-BASE = "/Users/ma/Downloads/降噪"
-CLEAN = os.path.join(BASE, "归档/旧测试/官方测试/val16/clean")
-NOISY = os.path.join(BASE, "归档/旧测试/官方测试/val16/noisy")
+p = argparse.ArgumentParser()
+p.add_argument("--clean", default="data/val16/clean")
+p.add_argument("--noisy", default="data/val16/noisy")
+p.add_argument("--out", default="results_pesq_stoi.csv")
+a = p.parse_args()
+CLEAN = os.path.abspath(a.clean)
+NOISY = os.path.abspath(a.noisy)
 sys.path.insert(0, os.path.join(HERE, "GUI"))
 sys.path.insert(0, HERE)
 import common as C
@@ -58,7 +62,7 @@ if __name__ == "__main__":
             row[k + "_pesq"], row[k + "_stoi"] = pesq_stoi(clean, y[:m], 16000)
         rows.append(row)
         print(f, "ok", flush=True)
-    with open(os.path.join(HERE, "results_pesq_stoi.csv"), "w", newline="") as fh:
+    with open(os.path.abspath(a.out), "w", newline="") as fh:
         w = csv.DictWriter(fh, fieldnames=list(rows[0].keys()))
         w.writeheader(); w.writerows(rows)
     print("\n30 means:")

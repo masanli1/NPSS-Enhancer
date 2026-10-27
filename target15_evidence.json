@@ -1,0 +1,634 @@
+[
+  {
+    "case": "harmonic_white_+05",
+    "weights": {
+      "energy": 0.7468651508163818,
+      "freq": 0.588771210400145,
+      "form": 0.6690263263319625,
+      "struct": 0.6042908477790929
+    },
+    "evidence": [
+      {
+        "view": "能量",
+        "key": "energy",
+        "feature": "cell_snr_db",
+        "stability": 0.8419983563839423,
+        "auc": 0.9754107198418442,
+        "weight_within": 1.0
+      },
+      {
+        "view": "能量",
+        "key": "energy",
+        "feature": "frame_energy_db",
+        "stability": 0.900840564192511,
+        "auc": 0.698584527036809,
+        "weight_within": 0.9
+      },
+      {
+        "view": "频率",
+        "key": "freq",
+        "feature": "band_snr_db",
+        "stability": 0.9328676306815071,
+        "auc": 0.9710341353872048,
+        "weight_within": 1.0
+      },
+      {
+        "view": "频率",
+        "key": "freq",
+        "feature": "peak_persistence",
+        "stability": 0.671562458732742,
+        "auc": 0.409853132815014,
+        "weight_within": 0.9
+      },
+      {
+        "view": "形态",
+        "key": "form",
+        "feature": "stability_S",
+        "stability": 0.6791766881942749,
+        "auc": 0.9475439831427566,
+        "weight_within": 1.0
+      },
+      {
+        "view": "形态",
+        "key": "form",
+        "feature": "pivot_density",
+        "stability": 0.7467278838157654,
+        "auc": 0.623562146485409,
+        "weight_within": 0.9
+      },
+      {
+        "view": "结构",
+        "key": "struct",
+        "feature": "harmonic_comb",
+        "stability": 0.9419443965341825,
+        "auc": 0.8777547513566856,
+        "weight_within": 1.0
+      },
+      {
+        "view": "结构",
+        "key": "struct",
+        "feature": "onset_protect",
+        "stability": 0.9683279955097333,
+        "auc": 0.5022064051178833,
+        "weight_within": 0.7
+      }
+    ],
+    "hit": true,
+    "achieved": 15.001,
+    "dose": 0.66015625,
+    "load_seconds": 10.61
+  },
+  {
+    "case": "harmonic_white_+00",
+    "weights": {
+      "energy": 0.7496718199422273,
+      "freq": 0.609924192028569,
+      "form": 0.6406783166800921,
+      "struct": 0.6177517189715259
+    },
+    "evidence": [
+      {
+        "view": "能量",
+        "key": "energy",
+        "feature": "cell_snr_db",
+        "stability": 0.8632467684603569,
+        "auc": 0.9687144584986528,
+        "weight_within": 1.0
+      },
+      {
+        "view": "能量",
+        "key": "energy",
+        "feature": "frame_energy_db",
+        "stability": 0.9161108087259218,
+        "auc": 0.7041691545124568,
+        "weight_within": 0.9
+      },
+      {
+        "view": "频率",
+        "key": "freq",
+        "feature": "band_snr_db",
+        "stability": 0.9491583447387657,
+        "auc": 0.9688717540911065,
+        "weight_within": 1.0
+      },
+      {
+        "view": "频率",
+        "key": "freq",
+        "feature": "peak_persistence",
+        "stability": 0.7023031675247587,
+        "auc": 0.44924066238757715,
+        "weight_within": 0.9
+      },
+      {
+        "view": "形态",
+        "key": "form",
+        "feature": "stability_S",
+        "stability": 0.7543534636497498,
+        "auc": 0.9258113657407415,
+        "weight_within": 1.0
+      },
+      {
+        "view": "形态",
+        "key": "form",
+        "feature": "pivot_density",
+        "stability": 0.8909574151039124,
+        "auc": 0.5543638006285687,
+        "weight_within": 0.9
+      },
+      {
+        "view": "结构",
+        "key": "struct",
+        "feature": "harmonic_comb",
+        "stability": 0.9438516119183404,
+        "auc": 0.8966190617272942,
+        "weight_within": 1.0
+      },
+      {
+        "view": "结构",
+        "key": "struct",
+        "feature": "onset_protect",
+        "stability": 0.9369870502987687,
+        "auc": 0.5114496582289042,
+        "weight_within": 0.7
+      }
+    ],
+    "hit": true,
+    "achieved": 15.011,
+    "dose": 0.82421875,
+    "load_seconds": 10.69
+  },
+  {
+    "case": "harmonic_pink_+05",
+    "weights": {
+      "energy": 0.7442073307584762,
+      "freq": 0.5836889973729416,
+      "form": 0.7270778784906258,
+      "struct": 0.6038167942069335
+    },
+    "evidence": [
+      {
+        "view": "能量",
+        "key": "energy",
+        "feature": "cell_snr_db",
+        "stability": 0.8023775763084131,
+        "auc": 0.9783677918438763,
+        "weight_within": 1.0
+      },
+      {
+        "view": "能量",
+        "key": "energy",
+        "feature": "frame_energy_db",
+        "stability": 0.9037093094221116,
+        "auc": 0.6970956063614747,
+        "weight_within": 0.9
+      },
+      {
+        "view": "频率",
+        "key": "freq",
+        "feature": "band_snr_db",
+        "stability": 0.9381071397803106,
+        "auc": 0.9715353998094639,
+        "weight_within": 1.0
+      },
+      {
+        "view": "频率",
+        "key": "freq",
+        "feature": "peak_persistence",
+        "stability": 0.6129097482098058,
+        "auc": 0.40467232407163933,
+        "weight_within": 0.9
+      },
+      {
+        "view": "形态",
+        "key": "form",
+        "feature": "stability_S",
+        "stability": 0.5628922581672668,
+        "auc": 0.9852892811606935,
+        "weight_within": 1.0
+      },
+      {
+        "view": "形态",
+        "key": "form",
+        "feature": "pivot_density",
+        "stability": 0.3646484911441803,
+        "auc": 0.8272521694626767,
+        "weight_within": 0.9
+      },
+      {
+        "view": "结构",
+        "key": "struct",
+        "feature": "harmonic_comb",
+        "stability": 0.873542746094494,
+        "auc": 0.8862399103106733,
+        "weight_within": 1.0
+      },
+      {
+        "view": "结构",
+        "key": "struct",
+        "feature": "onset_protect",
+        "stability": 0.9586911954754838,
+        "auc": 0.5005590117982782,
+        "weight_within": 0.7
+      }
+    ],
+    "hit": true,
+    "achieved": 14.996,
+    "dose": 0.150390625,
+    "load_seconds": 10.5
+  },
+  {
+    "case": "harmonic_traffic_+10",
+    "weights": {
+      "energy": 0.7196070863600637,
+      "freq": 0.5672417677210208,
+      "form": 0.6985111847339699,
+      "struct": 0.5074173537637852
+    },
+    "evidence": [
+      {
+        "view": "能量",
+        "key": "energy",
+        "feature": "cell_snr_db",
+        "stability": 0.7368580619530273,
+        "auc": 0.978135157040375,
+        "weight_within": 1.0
+      },
+      {
+        "view": "能量",
+        "key": "energy",
+        "feature": "frame_energy_db",
+        "stability": 0.8751994195260367,
+        "auc": 0.665380397583616,
+        "weight_within": 0.9
+      },
+      {
+        "view": "频率",
+        "key": "freq",
+        "feature": "band_snr_db",
+        "stability": 0.8695379371743923,
+        "auc": 0.9537025053493785,
+        "weight_within": 1.0
+      },
+      {
+        "view": "频率",
+        "key": "freq",
+        "feature": "peak_persistence",
+        "stability": 0.5681093085783638,
+        "auc": 0.4001161613990906,
+        "weight_within": 0.9
+      },
+      {
+        "view": "形态",
+        "key": "form",
+        "feature": "stability_S",
+        "stability": 0.3469695746898651,
+        "auc": 0.9515835735812589,
+        "weight_within": 1.0
+      },
+      {
+        "view": "形态",
+        "key": "form",
+        "feature": "pivot_density",
+        "stability": 0.07457484304904938,
+        "auc": 0.9449477551548068,
+        "weight_within": 0.9
+      },
+      {
+        "view": "结构",
+        "key": "struct",
+        "feature": "harmonic_comb",
+        "stability": 0.851539632469086,
+        "auc": 0.7104179630036034,
+        "weight_within": 1.0
+      },
+      {
+        "view": "结构",
+        "key": "struct",
+        "feature": "onset_protect",
+        "stability": 0.8611525119211519,
+        "auc": 0.5,
+        "weight_within": 0.7
+      }
+    ],
+    "hit": true,
+    "achieved": 15.008,
+    "dose": -0.4892578125,
+    "load_seconds": 9.82
+  },
+  {
+    "case": "music_white_+05",
+    "weights": {
+      "energy": 0.6969635359151314,
+      "freq": 0.659908846329518,
+      "form": 0.6294803647145392,
+      "struct": 0.5213816224797979
+    },
+    "evidence": [
+      {
+        "view": "能量",
+        "key": "energy",
+        "feature": "cell_snr_db",
+        "stability": 0.8402307113656782,
+        "auc": 0.9795749441914147,
+        "weight_within": 1.0
+      },
+      {
+        "view": "能量",
+        "key": "energy",
+        "feature": "frame_energy_db",
+        "stability": 0.9076829557399708,
+        "auc": 0.5966749373389063,
+        "weight_within": 0.9
+      },
+      {
+        "view": "频率",
+        "key": "freq",
+        "feature": "band_snr_db",
+        "stability": 0.9325465739775196,
+        "auc": 0.9367792922888653,
+        "weight_within": 1.0
+      },
+      {
+        "view": "频率",
+        "key": "freq",
+        "feature": "peak_persistence",
+        "stability": 0.6712141268723696,
+        "auc": 0.5877411495590026,
+        "weight_within": 0.9
+      },
+      {
+        "view": "形态",
+        "key": "form",
+        "feature": "stability_S",
+        "stability": 0.681250810623169,
+        "auc": 0.882859930282815,
+        "weight_within": 1.0
+      },
+      {
+        "view": "形态",
+        "key": "form",
+        "feature": "pivot_density",
+        "stability": 0.7650884985923767,
+        "auc": 0.60140698520982,
+        "weight_within": 0.9
+      },
+      {
+        "view": "结构",
+        "key": "struct",
+        "feature": "harmonic_comb",
+        "stability": 0.9386398749187885,
+        "auc": 0.7170345806338504,
+        "weight_within": 1.0
+      },
+      {
+        "view": "结构",
+        "key": "struct",
+        "feature": "onset_protect",
+        "stability": 0.9600624801244144,
+        "auc": 0.5093934345940341,
+        "weight_within": 0.7
+      }
+    ],
+    "hit": true,
+    "achieved": 15.002,
+    "dose": 0.74609375,
+    "load_seconds": 9.62
+  },
+  {
+    "case": "music_pink_+00",
+    "weights": {
+      "energy": 0.6802972543200487,
+      "freq": 0.6586939864341226,
+      "form": 0.6873971628667996,
+      "struct": 0.47653744291700195
+    },
+    "evidence": [
+      {
+        "view": "能量",
+        "key": "energy",
+        "feature": "cell_snr_db",
+        "stability": 0.818424299499314,
+        "auc": 0.974680779593921,
+        "weight_within": 1.0
+      },
+      {
+        "view": "能量",
+        "key": "energy",
+        "feature": "frame_energy_db",
+        "stability": 0.9192898965668206,
+        "auc": 0.5707128430938426,
+        "weight_within": 0.9
+      },
+      {
+        "view": "频率",
+        "key": "freq",
+        "feature": "band_snr_db",
+        "stability": 0.9516611622622233,
+        "auc": 0.9304539268940467,
+        "weight_within": 1.0
+      },
+      {
+        "view": "频率",
+        "key": "freq",
+        "feature": "peak_persistence",
+        "stability": 0.6331761600897007,
+        "auc": 0.5943706721746871,
+        "weight_within": 0.9
+      },
+      {
+        "view": "形态",
+        "key": "form",
+        "feature": "stability_S",
+        "stability": 0.6521896123886108,
+        "auc": 0.959403145109019,
+        "weight_within": 1.0
+      },
+      {
+        "view": "形态",
+        "key": "form",
+        "feature": "pivot_density",
+        "stability": 0.6559770703315735,
+        "auc": 0.6724154374924939,
+        "weight_within": 0.9
+      },
+      {
+        "view": "结构",
+        "key": "struct",
+        "feature": "harmonic_comb",
+        "stability": 0.8136392832493555,
+        "auc": 0.6332172765552503,
+        "weight_within": 1.0
+      },
+      {
+        "view": "结构",
+        "key": "struct",
+        "feature": "onset_protect",
+        "stability": 0.912759732666564,
+        "auc": 0.5161590908465831,
+        "weight_within": 0.7
+      }
+    ],
+    "hit": true,
+    "achieved": 14.988,
+    "dose": 0.38671875,
+    "load_seconds": 9.7
+  },
+  {
+    "case": "formant_white_+05",
+    "weights": {
+      "energy": 0.7323494086789359,
+      "freq": 0.6267120553871667,
+      "form": 0.622759454267221,
+      "struct": 0.4805374765655407
+    },
+    "evidence": [
+      {
+        "view": "能量",
+        "key": "energy",
+        "feature": "cell_snr_db",
+        "stability": 0.8388589807724572,
+        "auc": 0.9428886816106287,
+        "weight_within": 1.0
+      },
+      {
+        "view": "能量",
+        "key": "energy",
+        "feature": "frame_energy_db",
+        "stability": 0.8990454090690387,
+        "auc": 0.7037534891048653,
+        "weight_within": 0.9
+      },
+      {
+        "view": "频率",
+        "key": "freq",
+        "feature": "band_snr_db",
+        "stability": 0.9358711945027502,
+        "auc": 0.9543254126487967,
+        "weight_within": 1.0
+      },
+      {
+        "view": "频率",
+        "key": "freq",
+        "feature": "peak_persistence",
+        "stability": 0.675025093004665,
+        "auc": 0.502296660373542,
+        "weight_within": 0.9
+      },
+      {
+        "view": "形态",
+        "key": "form",
+        "feature": "stability_S",
+        "stability": 0.6869197487831116,
+        "auc": 0.8635072891769441,
+        "weight_within": 1.0
+      },
+      {
+        "view": "形态",
+        "key": "form",
+        "feature": "pivot_density",
+        "stability": 0.7515179514884949,
+        "auc": 0.6076569137338981,
+        "weight_within": 0.9
+      },
+      {
+        "view": "结构",
+        "key": "struct",
+        "feature": "harmonic_comb",
+        "stability": 0.9361956291630835,
+        "auc": 0.598390839113147,
+        "weight_within": 1.0
+      },
+      {
+        "view": "结构",
+        "key": "struct",
+        "feature": "onset_protect",
+        "stability": 0.8554775729695372,
+        "auc": 0.5560863721521593,
+        "weight_within": 0.7
+      }
+    ],
+    "hit": true,
+    "achieved": 14.998,
+    "dose": 1.16796875,
+    "load_seconds": 9.65
+  },
+  {
+    "case": "formant_traffic_+05",
+    "weights": {
+      "energy": 0.74126765742986,
+      "freq": 0.5697142345728622,
+      "form": 0.6493220796949818,
+      "struct": 0.4265612357682103
+    },
+    "evidence": [
+      {
+        "view": "能量",
+        "key": "energy",
+        "feature": "cell_snr_db",
+        "stability": 0.6896010170855681,
+        "auc": 0.9723284759011895,
+        "weight_within": 1.0
+      },
+      {
+        "view": "能量",
+        "key": "energy",
+        "feature": "frame_energy_db",
+        "stability": 0.8983474180669413,
+        "auc": 0.7194168611201862,
+        "weight_within": 0.9
+      },
+      {
+        "view": "频率",
+        "key": "freq",
+        "feature": "band_snr_db",
+        "stability": 0.8316313773919032,
+        "auc": 0.8443334756666255,
+        "weight_within": 1.0
+      },
+      {
+        "view": "频率",
+        "key": "freq",
+        "feature": "peak_persistence",
+        "stability": 0.5915920485169802,
+        "auc": 0.5162288332397466,
+        "weight_within": 0.9
+      },
+      {
+        "view": "形态",
+        "key": "form",
+        "feature": "stability_S",
+        "stability": 0.47653454542160034,
+        "auc": 0.8374924379298586,
+        "weight_within": 1.0
+      },
+      {
+        "view": "形态",
+        "key": "form",
+        "feature": "pivot_density",
+        "stability": 0.23958297073841095,
+        "auc": 0.8300970451843745,
+        "weight_within": 0.9
+      },
+      {
+        "view": "结构",
+        "key": "struct",
+        "feature": "harmonic_comb",
+        "stability": 0.8615932989519166,
+        "auc": 0.48547568187515844,
+        "weight_within": 1.0
+      },
+      {
+        "view": "结构",
+        "key": "struct",
+        "feature": "onset_protect",
+        "stability": 0.8536045602152105,
+        "auc": 0.5665195633557665,
+        "weight_within": 0.7
+      }
+    ],
+    "hit": true,
+    "achieved": 14.992,
+    "dose": -0.59551171875,
+    "load_seconds": 9.69
+  }
+]

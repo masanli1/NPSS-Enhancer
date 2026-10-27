@@ -1,5 +1,95 @@
 # Changelog
 
+## 2.9.1 — 2026-10-26
+
+- New GUI/CLI profile **均衡（频率+结构）** / `blend`: `0.5*(freq + struct)`.
+  p232 20: 13.82/2.491/0.9418; p257 30: 14.23/2.444/0.9402.
+  It keeps most of freq's PESQ/STOI and recovers part of struct's SI-SDR.
+- STOI band-envelope guard tested: +0.0004/+0.0009 STOI but PESQ -0.01 and
+  SI down; not enabled by default.
+- Default remains **频率优先 (freq)**; all profiles are optional.
+- Target mode still development-only; GUI has no target controls.
+
+## 2.9.0 — 2026-10-26
+
+- v2.9 default **frequency quality profile**: soft four-view modulation
+  `G ** (1 + 0.5*(0.5 - I_freq))`, selected because frequency raised
+  PESQ/STOI on both p232 and p257 in the concrete VoiceBank tune.
+- Profiles: `freq` (default), `energy`, `struct`, `off` (v2.8 bit-for-bit).
+- Trade-off: p232 13.71/2.499/0.9435 vs base 13.81/2.471/0.9396;
+  p257 14.06/2.448/0.9424 vs base 14.29/2.431/0.9372. PESQ/STOI up, SI down.
+- No hard target and no target controls in the GUI; target remains a
+  development diagnostic only.
+- GUI **四视角 profile** dropdown (freq default / energy / struct / off);
+  engine and CLI thread the chosen profile to `multi_stat.denoise_best`.
+- Evidence: `four_view_tune.csv`, `four_view_tune_p257.csv`.
+
+## 2.8.4 — 2026-10-26
+
+- VoiceBank-DEMAND testset (824 pairs) downloaded, resampled to 16 kHz, and
+  used for a concrete four-view ablation/tuning (`scripts/tune_four_views.py`).
+- p232 (20) vs p257 (30) results show no single fixed view wins everywhere:
+  structure is the consistent SI view; frequency raises PESQ/STOI but lowers
+  SI; morphology hurts; all-view fusion is neutral.
+- Default v2.7 path unchanged; no hard target added to the GUI.
+- Evidence CSV: `four_view_tune.csv`, `four_view_tune_p257.csv`.
+
+## 2.8.3 — 2026-10-26
+
+- Removed all target controls from the GUI (no 15 dB button/spinbox):
+  target/gain is a development and evaluation objective, not a user feature.
+- GUI stays a plain denoiser; CLI `target_nr.py` / `--target-nr` remain for
+  the fixed-effect study.
+- Default path unchanged.
+- Four-view invariant discovery, gain-target metric and evidence stay in code.
+
+## 2.8.2 — 2026-10-26
+
+- Gain-target evaluation: `--metric si_sdr_gain` / `dsnr` / `snr_out` in
+  `GUI/target_nr.py` (requires a clean reference).
+- GUI label clarified: **目标噪声底降幅 dB**; 15 dB button is noise-floor,
+  not +15 dB SI-SDR/SNR gain.
+- Local16 sample target +15 dB SI-SDR: `hit=False`, closest +6.72 dB,
+  NR 18.27 dB — reports the miss instead of faking it.
+- No change to the blind target path or the default denoiser.
+
+## 2.8.1 — 2026-10-26
+
+- Four-view `discover` now measures invariance across the multi-family
+  perturbation bank (white / Student-t / impulsive / AM / bursty / traffic),
+  not only white-noise levels.
+- GUI: one-click **15 dB** target preset; target spinbox remains 0=off.
+- Local16 target 15 check: 8/8 hit, 12.55 SI-SDR / 1.561 PESQ / 0.9153 STOI;
+  no regression from the discovery change.
+- Protect-map gamma 1.5 and stronger/softer fusions tested: no gain; reverted.
+- 15 dB is noise-floor attenuation, not +15 dB SI-SDR / SNR.
+
+## 2.8.0 — 2026-10-26
+
+- 定果寻因 (target mode): fix the noise-floor drop at T dB and solve the dose
+  by bisection against the measured drop, instead of fixing thresholds.
+- 四视角不变特征 (GUI/four_views.py): energy / frequency / morphology /
+  structure protect maps, weights measured per file (stability × AUC).
+- `Loads` refactor in multi_stat: gains exposed so re-gating costs one ISTFT
+  instead of the full 180-STFT cascade.
+- 8-pair evaluation: target 15.00 ± 0.01 dB; SI-SDR +0.31 dB over uniform dose.
+- CLI `--target-nr`, GUI spinbox, info dict with hit/miss, dose, evidence.
+- No change to the default path: target off reproduces v2.7.0 bit-for-bit.
+
+## 2.7.0 — 2026-10-25
+
+- Energy/SNR weighting: 16k quality 13.92 / 14.03.
+- Fast mode: K=6, 2-pass; music 13.62 / voice 13.84; 25 s stereo fast + parallel 9.7 s.
+- Long-file (>20 s) chunking fixed (`fast` in args tuple).
+- 48k high band ×0.70 soft gain (about −2.15 dB) to reduce hiss.
+- Stereo L/R parallel.
+
+## 2.6.1 — 2026-10-24
+
+- High-frequency soft gain: 8k+ ×0.70.
+- 8–16k: +1.05 dB → −2.15 dB; 4–8k unchanged.
+- Reduces hiss; 16k metrics unchanged.
+
 ## 2.6.0 — 2026-10-24
 
 - High/low contribution roles in pivot completion.

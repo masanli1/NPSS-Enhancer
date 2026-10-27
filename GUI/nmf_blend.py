@@ -1,11 +1,4 @@
 #!/usr/bin/env python3
-# Copyright (c) 2026 masanli1. All rights reserved.
-# Author: masanli1
-# Repository: https://github.com/masanli1/NPSS-Enhancer
-# License: academic/non-commercial free (LICENSE-ACADEMIC.md);
-#          commercial use requires a paid license (LICENSE-COMMERCIAL.md).
-# Contact: 2459551532@qq.com
-# SPDX-License-Identifier: LicenseRef-NPSS-Academic-1.0
 # -*- coding: utf-8 -*-
 """NMF speech blend used by the voice mode."""
 import os

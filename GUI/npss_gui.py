@@ -17,6 +17,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import engine
 import common as C
+import tts
 
 FONT = ("PingFang SC", 13)
 SMALL = ("PingFang SC", 11)
@@ -31,7 +32,7 @@ class App:
         self._plot_img = None
         self._last_plot_path = None
         self._spec_lut = None
-        root.title("NPSS 降噪 — 多统计 Gmin 最佳版 v2.6")
+        root.title("NPSS 降噪 — 多统计 Gmin 最佳版 v2.9.1")
         root.geometry("900x790")
         root.minsize(760, 620)
 
@@ -48,7 +49,7 @@ class App:
         main.pack(fill="both", expand=True)
         main.columnconfigure(1, weight=1)
 
-        ttk.Label(main, text="NPSS 降噪 — 多统计 Gmin 最佳版 v2.6",
+        ttk.Label(main, text="NPSS 降噪 — 多统计 Gmin 最佳版 v2.9.1",
                   font=("PingFang SC", 16, "bold")).grid(
             row=0, column=0, columnspan=4, sticky="w", pady=(0, 12))
 
@@ -67,8 +68,10 @@ class App:
         self.content_var = tk.StringVar(value="音乐为主")
         self.loops_var = tk.StringVar(value="5")
         self.multi_var = tk.BooleanVar(value=True)
+        self.fast_var = tk.BooleanVar(value=True)
         self.workers_var = tk.StringVar(value=str(min(os.cpu_count() or 4, 8)))
         self.auto_var = tk.BooleanVar(value=True)
+        self.profile_var = tk.StringVar(value="频率优先（PESQ/STOI）")
 
         ttk.Label(main, text="输入").grid(row=1, column=0, sticky="w", pady=4)
         ttk.Entry(main, textvariable=self.in_var).grid(
@@ -103,10 +106,12 @@ class App:
         ttk.Label(content, text="旧循环").pack(side="left", padx=(10, 2))
         ttk.Spinbox(content, from_=2, to=8, width=3,
                     textvariable=self.loops_var).pack(side="left")
-        ttk.Checkbutton(content, text="多统计 Gmin（v2.6）",
+        ttk.Checkbutton(content, text="多统计 Gmin（v2.7.0）",
                         variable=self.multi_var,
                         command=self.on_content).pack(side="left", padx=(8, 2))
-        self.content_hint = ttk.Label(content, text="16k/48k 多统计 + 拓扑 + 高/低贡献补全；立体声", font=SMALL)
+        ttk.Checkbutton(content, text="快速模式（K6/2-pass）",
+                        variable=self.fast_var).pack(side="left", padx=(4, 2))
+        self.content_hint = ttk.Label(content, text="16k/48k 多统计 + 拓扑 + 角色补全 + 高频柔和；立体声", font=SMALL)
         self.content_hint.pack(side="left", padx=6)
 
         opts = ttk.Frame(main)
@@ -130,6 +135,11 @@ class App:
                      state="readonly").pack(side="left", padx=(4, 14))
         ttk.Checkbutton(opts, text="自动高 SNR 保护",
                         variable=self.auto_var).pack(side="left", padx=(14, 0))
+        ttk.Label(opts, text="四视角 profile").pack(side="left", padx=(14, 2))
+        ttk.Combobox(opts, textvariable=self.profile_var, width=20,
+                     values=["频率优先（PESQ/STOI）", "均衡（频率+结构）", "能量均衡",
+                             "结构优先（SI-SDR）", "关闭（v2.8）"],
+                     state="readonly").pack(side="left", padx=(0, 10))
         ttk.Label(opts, text="处理采样率").pack(side="left")
         ttk.Combobox(opts, textvariable=self.proc_var, width=7,
                      values=["16000", "48000"],
@@ -139,6 +149,7 @@ class App:
         btns.grid(row=6, column=0, columnspan=4, sticky="w", pady=(6, 8))
         self.start_btn = ttk.Button(btns, text="开始处理", command=self.start)
         self.start_btn.pack(side="left")
+        ttk.Button(btns, text="文字转语音", command=self.open_tts).pack(side="left", padx=6)
         ttk.Button(btns, text="播放原文件", command=lambda: self.play(self.in_var.get())).pack(side="left", padx=6)
         ttk.Button(btns, text="播放输出", command=lambda: self.play(self.out_var.get())).pack(side="left", padx=6)
         ttk.Button(btns, text="打开输出目录", command=self.open_folder).pack(side="left", padx=6)
@@ -206,11 +217,11 @@ class App:
         multi = bool(self.multi_var.get())
         if self.content_var.get() == "声音为主":
             self.content_hint.config(
-                text="16k/48k 多统计 + 拓扑 + 高/低贡献补全 + NMF；立体声" if multi
+                text="16k/48k 多统计 + 拓扑 + 角色补全 + 能量 + NMF；立体声" if multi
                 else "16k 自动互补 + NMF；48k 旧 NPSS")
         else:
             self.content_hint.config(
-                text="16k/48k 多统计 + 拓扑 + 高/低贡献补全；立体声" if multi
+                text="16k/48k 多统计 + 拓扑 + 角色补全 + 高频柔和；立体声" if multi
                 else "16k 自动互补；48k 旧 NPSS")
 
     def on_mode(self):
@@ -257,6 +268,13 @@ class App:
             complement = True
             loops = max(2, min(8, int(self.loops_var.get())))
             multi = bool(self.multi_var.get())
+            fast = bool(self.fast_var.get())
+            profile = {"频率优先（PESQ/STOI）": "freq",
+                       "均衡（频率+结构）": "blend",
+                       "能量均衡": "energy",
+                       "结构优先（SI-SDR）": "struct",
+                       "关闭（v2.8）": "off"}.get(self.profile_var.get(), "freq")
+            target = None
             if multi and proc_sr > 16000:
                 self.log_line("48k 全带 + 立体声 + 跨区拓扑：16k gate + 8k+ 保留")
             elif content == "music" and proc_sr <= 16000:
@@ -265,18 +283,21 @@ class App:
                 self.log_line("提示：声音模式的 NMF 字典是 16k；当前 %d Hz 只跑 NPSS" % proc_sr)
         except Exception:
             passes, chunk, proc_sr, iterations, inject, auto, theta, support, backend, workers = 3, 20.0, 16000, 1, 0.0, True, 0.95, 0.60, "specsub", 4
+            profile = "freq"
+            target = None
             content = "music"
             complement = True
             loops = 2
             multi = True
+            fast = True
         t = threading.Thread(target=self.worker,
                              args=(src, dst, mode, fam, passes, chunk, proc_sr,
                                    iterations, inject, auto, theta, support,
-                                   backend, workers, content, complement, loops, multi),
+                                   backend, workers, content, complement, loops, multi, fast, profile),
                              daemon=True)
         t.start()
 
-    def worker(self, src, dst, mode, fam, passes, chunk, proc_sr, iterations, inject, auto, theta, support, backend, workers, content, complement, loops, multi):
+    def worker(self, src, dst, mode, fam, passes, chunk, proc_sr, iterations, inject, auto, theta, support, backend, workers, content, complement, loops, multi, fast, profile="freq", target=None):
         try:
             engine.process_file(
                 src, dst, mode=mode, family=fam, passes=passes,
@@ -284,7 +305,8 @@ class App:
                 iterations=iterations, inject=inject, auto=auto,
                 theta=theta, support=support, backend=backend, workers=workers,
                 content_mode=content, complement=complement, loops=loops,
-                multi_stat=multi,
+                multi_stat=multi, fast=fast, target_nr_db=target,
+                view_profile=profile,
                 progress=lambda d, t: self.q.put(("progress", d, t)),
                 log=lambda s: self.q.put(("log", s)))
             self.q.put(("done", dst))
@@ -496,6 +518,101 @@ class App:
         draw.text((4, spec_top + spec_h // 2), "Hz", fill=(40, 40, 40), font=fsmall)
         draw.text((L + col // 2, H - 12), "time (s)", fill=(40, 40, 40), font=fsmall)
         return img
+
+
+    def open_tts(self):
+        win = tk.Toplevel(self.root)
+        win.title("文字转语音（TTS）— NPSS-Enhancer")
+        win.geometry("780x620")
+        win.transient(self.root)
+
+        ttk.Label(win, text="输入文字（中文/英文）").pack(anchor="w", padx=12, pady=(10, 2))
+        text = ScrolledText(win, height=10, font=("PingFang SC", 13), wrap="word")
+        text.pack(fill="both", expand=True, padx=12)
+        text.insert("1.0", "你好，这是 NPSS-Enhancer 的文字转语音测试。")
+
+        row = ttk.Frame(win)
+        row.pack(fill="x", padx=12, pady=8)
+        voices = tts.list_voices()
+        names = [v[0] for v in voices]
+        voice_var = tk.StringVar(value=tts.default_voice(voices))
+        ttk.Label(row, text="声音").pack(side="left")
+        ttk.Combobox(row, textvariable=voice_var, values=names, width=22,
+                     state="readonly").pack(side="left", padx=4)
+        ttk.Label(row, text="语速").pack(side="left", padx=(10, 2))
+        rate_var = tk.StringVar(value="170")
+        ttk.Spinbox(row, from_=80, to=320, width=5,
+                    textvariable=rate_var).pack(side="left")
+
+        out_row = ttk.Frame(win)
+        out_row.pack(fill="x", padx=12, pady=4)
+        out_var = tk.StringVar(value=os.path.join(os.path.expanduser("~/Downloads"), "NPSS_TTS.wav"))
+        ttk.Label(out_row, text="输出").pack(side="left")
+        ttk.Entry(out_row, textvariable=out_var).pack(side="left", fill="x", expand=True, padx=4)
+        def browse():
+            p = filedialog.asksaveasfilename(title="保存语音", defaultextension=".wav",
+                                             filetypes=[("WAV", "*.wav")])
+            if p:
+                out_var.set(p)
+        ttk.Button(out_row, text="另存…", command=browse).pack(side="left")
+
+        info = ttk.Label(win, text="自研共振峰 TTS + pypinyin G2P；不调用系统/第三方 TTS；音质机器人化。",
+                         foreground="#666666")
+        info.pack(anchor="w", padx=12, pady=(2, 4))
+
+        btns = ttk.Frame(win)
+        btns.pack(fill="x", padx=12, pady=8)
+        b1 = ttk.Button(btns, text="生成 WAV")
+        b2 = ttk.Button(btns, text="生成并降噪")
+        b1.pack(side="left")
+        b2.pack(side="left", padx=8)
+        status = ttk.Label(btns, text="就绪")
+        status.pack(side="left", padx=12)
+
+        def do(denoise):
+            txt = text.get("1.0", "end").strip()
+            if not txt:
+                messagebox.showwarning("提示", "请输入文字", parent=win)
+                return
+            out = out_var.get().strip()
+            if not out:
+                messagebox.showwarning("提示", "请选择输出文件", parent=win)
+                return
+            try:
+                rate = int(rate_var.get())
+            except Exception:
+                rate = 170
+            voice = voice_var.get()
+            b1.config(state="disabled")
+            b2.config(state="disabled")
+            status.config(text="生成中…")
+
+            def work():
+                tmp = out + ".tts.wav" if denoise else out
+                try:
+                    tts.synth(txt, voice, rate, tmp, 48000)
+                    if denoise:
+                        status.config(text="生成完成，降噪中…")
+                        engine.process_file(tmp, out, mode="audio", proc_sr=48000,
+                                            out_sr=48000, workers=4, content_mode="voice",
+                                            multi_stat=True)
+                        try:
+                            os.remove(tmp)
+                        except Exception:
+                            pass
+                    status.config(text="完成：" + out)
+                except Exception as e:
+                    status.config(text="失败")
+                    messagebox.showerror("TTS 失败", str(e), parent=win)
+                finally:
+                    b1.config(state="normal")
+                    b2.config(state="normal")
+
+            threading.Thread(target=work, daemon=True).start()
+
+        b1.config(command=lambda: do(False))
+        b2.config(command=lambda: do(True))
+        ttk.Button(btns, text="关闭", command=win.destroy).pack(side="right")
 
     def play(self, path):
         if not path or not os.path.exists(path):

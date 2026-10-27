@@ -2,8 +2,10 @@
 
 Author: [masanli1](https://github.com/masanli1) · Repository: [NPSS-Enhancer](https://github.com/masanli1/NPSS-Enhancer)
 
-[中文说明](README.zh-CN.md) · [History](docs/history/)
+[中文说明](README.zh-CN.md)
 
+> **v2.9.1: quality profiles on the four views; no hard target in the GUI.**
+>
 > **No training. No GPU. +2.7 dB SI-SDR over SpecSub.**
 > A training-free general denoiser that raises the floor, not the SOTA ceiling.
 
@@ -15,15 +17,43 @@ Author: [masanli1](https://github.com/masanli1) · Repository: [NPSS-Enhancer](h
 |---|---|---|---|
 | noisy | 8.29 | 2.056 | 0.9156 |
 | SpecSub | 11.05 | 2.353 | 0.9168 |
-| **Music 16k** (multi-stat + topology + role completion) | **13.83** | **2.498** | **0.9086** |
-| **Voice 16k** (multi-stat + topology + role completion + 40% NMF) | **13.96** | **2.484** | **0.9117** |
+| **Music 16k** (multi-stat + topology + roles + energy) | **13.92** | **2.505** | **0.9082** |
+| **Voice 16k** (multi-stat + topology + roles + energy + 40% NMF) | **14.03** | **2.489** | **0.9116** |
 | Music 48k (full-band hybrid) | not measured | — | — |
 
-- **Highest SI-SDR:** voice 13.96; **highest PESQ:** music 2.498.
+- **Highest SI-SDR:** voice 14.03; **highest PESQ:** music 2.505.
 - vs v2.0: music +0.38 dB SI (PESQ −0.027); voice +0.22 dB SI (PESQ unchanged).
-- **STOI is still below noisy/classical baselines** (0.9086/0.9117 vs 0.9156/0.9168). This is a documented quality/intelligibility trade-off.
+- **STOI is still below noisy/classical baselines** (0.9082/0.9116 vs 0.9156/0.9168). This is a documented quality/intelligibility trade-off.
 - Not SOTA: deep-learning denoisers are roughly 18–20 SI-SDR / PESQ 3+.
 - 30 pairs, one dataset, PESQ-WB; numbers are dataset-dependent.
+
+## v2.9 quality profile (default `frequency`)
+
+v2.9 keeps the v2.8 default gate and adds a soft four-view modulation:
+
+```text
+G = G_v28 ** (1 + 0.5 * (0.5 - I_freq))
+```
+
+`frequency` was the only view that raised PESQ/STOI on both speakers in the
+VoiceBank four-view tune, so it is the v2.9 default. It buys perceptual quality
+at a small SI-SDR cost; `view_profile="off"` reproduces v2.8,
+`"energy"`/`"struct"` are the other measured profiles.
+
+| subset | config | SI-SDR | PESQ | STOI |
+|---|---|---|---|---|
+| p232, 20 | v2.8 base | **13.81** | 2.471 | 0.9396 |
+| p232, 20 | **v2.9 freq β0.5** | 13.71 | **2.499** | **0.9435** |
+| p257, 30 | v2.8 base | **14.29** | 2.431 | 0.9372 |
+| p257, 30 | **v2.9 freq β0.5** | 14.06 | **2.448** | **0.9424** |
+| p232, 20 | **均衡（频率+结构）** | 13.82 | 2.491 | 0.9418 |
+| p257, 30 | **均衡（频率+结构）** | 14.23 | 2.444 | 0.9402 |
+
+- PESQ +0.028/+0.017, STOI +0.0039/+0.0052;
+- SI-SDR −0.10/−0.23;
+- if SI-SDR is the priority, use `view_profile="struct"` or `"off"`;
+- these are 20/30-file subsets, not the full 824 testset.
+
 
 ## Features
 
@@ -32,6 +62,10 @@ Author: [masanli1](https://github.com/masanli1) · Repository: [NPSS-Enhancer](h
 - **50/50 blend** with the single-perturbation result; voice adds 40% NMF.
 - **Soft cross-region topology:** 0.5 s regions, 8 bands, adjacent-graph degree; `w=0.8+0.2·degree`.
 - **Pivot completion with roles:** high-contribution pivots are backbone anchors; low-contribution pivots are auxiliary and fill only to 0.82. No audio recovery.
+- **Energy/SNR weighting:** local SNR → sigmoid; gate × (0.8+0.2e); 16k only.
+- **Four-view invariant discovery:** energy / frequency / morphology / structure stability measured across the multi-family perturbation bank (white, Student-t, impulsive, AM, bursty, traffic), not just white-noise levels.
+- **Fast mode (v2.7):** K=6, 2-pass; about 2.5× faster; music 13.62 / voice 13.84.
+- **Stereo parallel:** L/R processed concurrently; 12 s stereo drops from ~26 s to ~6.9 s.
 - **Training-free general mode**; optional small NMF dictionary for voice.
 - **GUI + CLI**, parallel chunks, waveform/spectrogram, PESQ/STOI evaluation.
 
@@ -69,13 +103,72 @@ python GUI/npss_gui.py
 
 | Content | 16k | 48k |
 |---|---|---|
-| Music / general | multi-stat Gmin + 50/50 blend | full-band + stereo: 16k gate + 8k+ preserved |
-| Voice | multi-stat Gmin + blend + 40% NMF | full-band + stereo: 16k gate + 8k+ preserved |
+| Music / general | multi-stat Gmin + 50/50 blend | full-band + stereo: 16k gate + 8k+ soft (×0.70) |
+| Voice | multi-stat Gmin + blend + 40% NMF | full-band + stereo: 16k gate + 8k+ soft (×0.70) |
 
 - GUI has a **“多统计 Gmin（v2.1）”** checkbox; default on.
-- 48k no longer falls back: 16k multi-stat for 0–8k + untouched 8k+ high band; stereo L/R; choose 48k for music.
+- 48k no longer falls back: 16k multi-stat for 0–8k + soft-gained 8k+ high band; stereo L/R; choose 48k for music.
 - Old loop control applies only when multi-stat is off; multi-stat is fixed at 3-pass / 2-loop.
 - The NMF dictionary was trained on 60 English clean utterances; Chinese/music are not validated.
+
+## Target mode — 定果寻因 (fixed-effect, seek-cause)
+
+The stock pipeline fixes the *cause* (thresholds, floors, passes) and reports
+whatever noise reduction comes out: on the eight test pairs below it lands
+anywhere between 11.9 and 19.2 dB. Target mode inverts the direction:
+
+```
+果 (effect) : the noise floor must drop by exactly T dB (default 15)
+因 (cause)  : one scalar dose c,  G = G0 ** (1 + c * (1 - I))
+              c is bisected against the *measured* drop (blind, median of the
+              quietest 20% frames), not against a parameter guess
+I           : four-view protect map — energy / frequency / morphology /
+              structure — fused by weighted consensus, deciding where the
+              dose may land
+```
+
+```bash
+# CLI: noise-floor target (blind, no clean reference)
+python npss_parallel.py in.wav out.wav --target-nr 15
+
+# single block, with the evaluation JSON
+python GUI/target_nr.py in.wav out.wav --target 15 --clean ref.wav --json info.json
+
+# gain target (development/evaluation only; needs clean reference)
+#   --metric si_sdr_gain : target the SI-SDR improvement
+#   --metric dsnr        : target the SNR improvement
+python GUI/target_nr.py in.wav out.wav --target 15 --clean ref.wav \
+  --metric si_sdr_gain --json info_gain.json
+```
+
+- GUI: **no target controls**. Target mode is development/evaluation only;
+  the GUI stays a plain denoiser. Use the CLI below when you need the
+  fixed-effect study.
+- The controlled variable (`nr_floor`) is **not** a quality metric. Denoising
+  effect is still scored the v2.7 way — SI-SDR / PESQ / STOI on clean-noisy
+  pairs — via `scripts/eval_protocol_v27.py`, which reproduces
+  `eval_official.py`'s methods, layout and CSV columns, plus target rows.
+- Stand-in speech run (8 pairs, 16 kHz, not VoiceBank): the v2.7 ordering is
+  reproduced (noisy 7.59 < SpecSub 11.02 < Music 12.44 SI-SDR), and at 15 dB
+  the target mode scores **12.55 SI-SDR / 0.9153 STOI** vs 12.44 / 0.9160 for
+  the stock pipeline — no measurable loss on the v2.7 metric set.
+- `hit=False` in the info dict means the target was outside the reachable
+  range; the controller reports the miss instead of silently changing the goal.
+- The GUI has **no 15 dB button**; target/gain is a development objective,
+  not a user-facing control. Gain targets need a clean reference and are
+  evaluation only.
+- Local16 sample, target +15 dB SI-SDR: `hit=False`, closest **+6.72 dB**
+  (dose 2.0, NR 18.27 dB). This is the current traditional direction; the
+  controller reports the miss rather than faking the gain.
+- At 48 kHz the target is enforced on the 0–8 kHz band; 8k+ stays soft-gained
+  for music, so it adds a little noise back to the full-band number.
+
+See `target15_report.md` / `target15_report.png` for the full evidence.
+
+Latest local16 check (8 synthetic pairs, target 15 dB noise-floor):
+`12.55 SI-SDR / 1.561 PESQ / 0.9153 STOI`, 8/8 hit; target 15 is
+**noise-floor attenuation**, not +15 dB SI-SDR. The report's max ΔSNR is
+about +3.94 dB on these pairs; a +15 dB SNR target returns `hit=False`.
 
 ## Algorithm (short)
 
@@ -104,11 +197,19 @@ completion:
   low  = 0.65 <= S < 0.95 -> auxiliary, fill to 0.82
   no audio recovery; gate stays continuous
 
+energy (16k only):
+  snr = 10*log10(|X|^2 / noise)
+  gate *= 0.8 + 0.2*sigmoid((snr-6)/4)
+
+fast mode:
+  K=6, 2 passes; stereo L/R in parallel
+  music 13.62 / voice 13.84 (quality mode: 13.83 / 13.96)
+
 48k:
   x16 = resample(x, 16000)
   y16 = multi_stat(x16)
   ylow = resample(y16, 48000)
-  xh = highpass(x, 8 kHz)          # untouched
+  xh = highpass(x, 8 kHz) * 0.70   # soft high band
   y = (ylow + xh) * (rms_in / rms_out)
 
 stereo: process L/R independently; if L==R, process once and duplicate.
@@ -120,7 +221,7 @@ stereo: process L/R independently; if L==R, process once and duplicate.
 - The 50/50 blend keeps single-perturbation detail and avoids over-suppression.
 - **No voice/babble probes**; structured probes would protect their own structure.
 
-See [`docs/ALGORITHM.md`](docs/ALGORITHM.md) for details.
+See [`NPSS-Enhancer-v2.7.0-完整文档.md`](NPSS-Enhancer-v2.7.0-完整文档.md) for details.
 
 ## Evaluation
 
@@ -140,10 +241,11 @@ python eval_baselines.py --clean data/val16/clean --noisy data/val16/noisy
 - Multi-stat costs about **6×** the single-perturbation mode; long files are slow.
 - NMF voice mode is English-specific and 16k-only.
 - 30 held-out pairs only; traffic probe is synthetic, not a real environment bank.
-- Music PESQ is slightly lower than v2.0 (2.498 vs 2.514); SI/STOI are higher.
-- 48k: 8k+ is untouched (not denoised); stereo is preserved by processing L/R separately; low band is still about 1 dB down.
+- Music PESQ is slightly lower than v2.0 (2.505 vs 2.514); SI/STOI are higher.
+- 48k: 8k+ is softly attenuated (×0.70, about −2.15 dB) to reduce hiss; stereo is preserved; low band is still about 1 dB down.
 - No 48k clean reference; no 48k SI/PESQ.
-- True stereo costs about 2×; identical L/R is detected and processed once.
+- True stereo costs about 2×; L/R now run in parallel, so wall time is close to one channel; identical L/R is processed once.
+- Fast mode trades about 0.2 dB SI / 0.01 PESQ for ~2.5× speed.
 
 ## License (dual)
 
@@ -177,7 +279,7 @@ NPSS-Enhancer/
 ├── metrics.py            # PESQ/STOI helpers
 ├── scripts/make_demo.py  # synthetic demo generator
 ├── tests/test_smoke.py   # CI smoke test
-├── docs/                 # algorithm, results, licensing, history/v2.0
+├── NPSS-Enhancer-v2.7.0-完整文档.md
 ├── requirements.txt
 ├── requirements-metrics.txt
 ├── LICENSE / LICENSE-ACADEMIC.md / LICENSE-COMMERCIAL.md

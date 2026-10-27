@@ -1,0 +1,42 @@
+{
+  "harmonic_white_+05": {
+    "target": 12.0,
+    "si_sdr": 9.845,
+    "nr": 12.006
+  },
+  "harmonic_white_+00": {
+    "target": 15.0,
+    "si_sdr": 5.945,
+    "nr": 15.002
+  },
+  "harmonic_pink_+05": {
+    "target": 18.0,
+    "si_sdr": 12.535,
+    "nr": 18.001
+  },
+  "harmonic_traffic_+10": {
+    "target": 21.0,
+    "si_sdr": 20.101,
+    "nr": 21.004
+  },
+  "music_white_+05": {
+    "target": 6.0,
+    "si_sdr": 7.285,
+    "nr": 6.004
+  },
+  "music_pink_+00": {
+    "target": 12.0,
+    "si_sdr": 3.02,
+    "nr": 12.004
+  },
+  "formant_white_+05": {
+    "target": 9.0,
+    "si_sdr": 9.38,
+    "nr": 8.995
+  },
+  "formant_traffic_+05": {
+    "target": 21.0,
+    "si_sdr": 16.835,
+    "nr": 21.004
+  }
+}
