@@ -4,7 +4,7 @@ Author: [masanli1](https://github.com/masanli1) · Repository: [NPSS-Enhancer](h
 
 [中文说明](README.zh-CN.md)
 
-> **v2.9.1: quality profiles on the four views; no hard target in the GUI.**
+> **v2.9.2: broad media-format support + quality profiles on the four views; no hard target in the GUI.**
 >
 > **No training. No GPU. +2.7 dB SI-SDR over SpecSub.**
 > A training-free general denoiser that raises the floor, not the SOTA ceiling.
@@ -53,6 +53,32 @@ at a small SI-SDR cost; `view_profile="off"` reproduces v2.8,
 - SI-SDR −0.10/−0.23;
 - if SI-SDR is the priority, use `view_profile="struct"` or `"off"`;
 - these are 20/30-file subsets, not the full 824 testset.
+
+
+## Supported media formats (v2.9.2)
+
+Input and output go through the bundled ffmpeg, so the container is not limited
+to WAV/MP4.
+
+| Kind | Input | Output |
+|---|---|---|
+| Audio | WAV, FLAC, MP3, M4A/M4B, AAC, OGG/Opus, AIFF/AIFC, WMA, MKA, AC3/EAC3, MP2, CAF, AU/SND, APE, WV | WAV, FLAC, MP3, M4A/M4B, AAC, OGG, Opus, AIFF/AIFC, WMA, MKA, AC3/EAC3, MP2, CAF, AU/SND |
+| Video | MP4, M4V, MOV, MKV, AVI, WEBM, FLV, TS/MTS/M2TS, MPG/MPEG, 3GP/3G2, OGV, VOB, WMV/ASF, F4V, MXF, DV, RM/RMVB | MP4, M4V, MOV, MKV, AVI, WEBM, FLV, TS/M2TS, MPG/MPEG, 3GP/3G2, OGV, WMV/ASF |
+
+- Audio output codec follows the extension (MP3 → libmp3lame, FLAC → flac,
+  M4A → AAC, OGG → Vorbis, Opus → libopus, WMA → wmav2, AIFF → PCM BE).
+- Video output tries stream-copy first for compatible containers, then
+  re-encodes with the matching codec (H.264/AAC, VP9/Opus, MPEG-4/MP3,
+  MPEG-2/MP2, Theora/Vorbis, WMV2/WMA).
+- GUI file dialogs list all supported extensions; the CLI accepts any input
+  and picks the output codec from the output extension.
+
+```bash
+# any input -> FLAC
+python npss_parallel.py input.mkv output.flac --fast
+# MP3 -> MP4 video output is not allowed; use an audio output extension
+python npss_parallel.py input.mp3 output.m4a --proc-sr 16000
+```
 
 
 ## Features

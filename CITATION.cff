@@ -5,7 +5,7 @@ abstract: "v2.9 frequency quality profile (soft four-view modulation); Four-view
 authors:
   - name: "masanli1"
     email: "2459551532@qq.com"
-version: "2.9.1"
+version: "2.9.2"
 date-released: "2026-10-23"
 license: "other"
 repository-code: "https://github.com/masanli1/NPSS-Enhancer"

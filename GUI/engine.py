@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 """Audio/video denoising engine built on the best NPSS config (06)."""
 import os
+import re
 import sys
 import shutil
 import tempfile
@@ -17,8 +18,25 @@ import common as C
 import common_win as W
 import multi_stat as MS
 
-AUDIO_EXTS = {".wav", ".mp3", ".flac", ".m4a", ".aac", ".ogg", ".aiff", ".aif", ".wma"}
-VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v", ".flv", ".ts"}
+AUDIO_EXTS = {
+    ".wav", ".mp3", ".flac", ".m4a", ".m4b", ".aac", ".ogg", ".oga",
+    ".opus", ".aiff", ".aif", ".aifc", ".wma", ".mka", ".ac3", ".eac3",
+    ".mp2", ".caf", ".au", ".snd", ".ape", ".wv",
+}
+VIDEO_EXTS = {
+    ".mp4", ".m4v", ".mov", ".mkv", ".avi", ".webm", ".flv", ".ts",
+    ".mts", ".m2ts", ".mpg", ".mpeg", ".mpe", ".m2v", ".3gp", ".3g2",
+    ".ogv", ".vob", ".wmv", ".asf", ".f4v", ".mxf", ".dv", ".rm", ".rmvb",
+}
+AUDIO_OUT_EXTS = {
+    ".wav", ".flac", ".mp3", ".m4a", ".m4b", ".aac", ".ogg", ".oga",
+    ".opus", ".aiff", ".aif", ".aifc", ".wma", ".mka", ".ac3", ".eac3",
+    ".mp2", ".caf", ".au", ".snd",
+}
+VIDEO_OUT_EXTS = {
+    ".mp4", ".m4v", ".mov", ".mkv", ".avi", ".webm", ".flv", ".ts",
+    ".m2ts", ".mpg", ".mpeg", ".3gp", ".3g2", ".ogv", ".wmv", ".asf",
+}
 
 _FFMPEG = None
 
@@ -52,6 +70,54 @@ def is_audio(path):
     return os.path.splitext(path)[1].lower() in AUDIO_EXTS
 
 
+_AUDIO_ENCODERS = {
+    ".wav": ["-c:a", "pcm_s16le"],
+    ".flac": ["-c:a", "flac"],
+    ".mp3": ["-c:a", "libmp3lame", "-b:a", "320k"],
+    ".m4a": ["-c:a", "aac", "-b:a", "256k"],
+    ".m4b": ["-c:a", "aac", "-b:a", "256k"],
+    ".aac": ["-c:a", "aac", "-b:a", "256k", "-f", "adts"],
+    ".ogg": ["-c:a", "libvorbis", "-q:a", "6"],
+    ".oga": ["-c:a", "libvorbis", "-q:a", "6"],
+    ".opus": ["-c:a", "libopus", "-b:a", "160k"],
+    ".aiff": ["-c:a", "pcm_s16be"],
+    ".aif": ["-c:a", "pcm_s16be"],
+    ".aifc": ["-c:a", "pcm_s16be"],
+    ".wma": ["-c:a", "wmav2", "-b:a", "192k"],
+    ".mka": ["-c:a", "flac"],
+    ".ac3": ["-c:a", "ac3", "-b:a", "192k"],
+    ".eac3": ["-c:a", "eac3", "-b:a", "192k"],
+    ".mp2": ["-c:a", "mp2", "-b:a", "192k"],
+    ".caf": ["-c:a", "pcm_s16le"],
+    ".au": ["-c:a", "pcm_s16be"],
+    ".snd": ["-c:a", "pcm_s16be"],
+}
+
+
+def probe_audio_sr(src):
+    """Best-effort sample rate from ffmpeg's stream info (no ffprobe needed)."""
+    ff = find_ffmpeg()
+    if not ff:
+        return None
+    r = subprocess.run([ff, "-hide_banner", "-i", src], capture_output=True, text=True)
+    m = re.search(r"Audio:.*?(\d+) Hz", r.stderr or "")
+    return int(m.group(1)) if m else None
+
+
+def encode_audio(src_wav, dst, sr, log=None):
+    """Encode a processed WAV into the container implied by dst's extension."""
+    ext = os.path.splitext(dst)[1].lower()
+    if not ext:
+        dst += ".wav"
+        ext = ".wav"
+    enc = _AUDIO_ENCODERS.get(ext)
+    if enc is None:
+        raise RuntimeError("不支持的音频输出格式：%s（支持 %s）" % (
+            ext, " ".join(sorted(AUDIO_OUT_EXTS))))
+    run_ffmpeg(["-i", src_wav, "-ar", str(int(sr)), "-ac", "2"] + enc + [dst], log)
+    return dst
+
+
 def run_ffmpeg(args, log=None):
     ff = find_ffmpeg()
     if not ff:
@@ -79,18 +145,44 @@ def resample(src, dst, sr, log=None, channels=2):
 
 
 def mux_video(video, audio, out, log=None):
-    # copy video stream when possible; fall back to H.264 re-encode
-    try:
-        run_ffmpeg(["-i", video, "-i", audio,
-                    "-map", "0:v:0", "-map", "1:a:0",
-                    "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
-                    "-shortest", out], log)
-    except RuntimeError:
-        log("视频流复制失败，改为 H.264 重编码……")
-        run_ffmpeg(["-i", video, "-i", audio,
-                    "-map", "0:v:0", "-map", "1:a:0",
-                    "-c:v", "libx264", "-crf", "18", "-preset", "medium",
-                    "-c:a", "aac", "-b:a", "192k", "-shortest", out], log)
+    """Mux the new audio into a video container, choosing compatible codecs."""
+    ext = os.path.splitext(out)[1].lower() or ".mp4"
+    if ext not in VIDEO_OUT_EXTS:
+        raise RuntimeError("不支持的视频输出格式：%s（支持 %s）" % (
+            ext, " ".join(sorted(VIDEO_OUT_EXTS))))
+    acodec = {
+        ".webm": ["-c:a", "libopus", "-b:a", "160k"],
+        ".avi": ["-c:a", "libmp3lame", "-b:a", "192k"],
+        ".mpg": ["-c:a", "mp2", "-b:a", "192k"],
+        ".mpeg": ["-c:a", "mp2", "-b:a", "192k"],
+        ".ogv": ["-c:a", "libvorbis", "-q:a", "6"],
+        ".wmv": ["-c:a", "wmav2", "-b:a", "192k"],
+        ".asf": ["-c:a", "wmav2", "-b:a", "192k"],
+    }.get(ext, ["-c:a", "aac", "-b:a", "192k"])
+    vcodec = {
+        ".webm": ["-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "32", "-row-mt", "1"],
+        ".avi": ["-c:v", "mpeg4", "-q:v", "4"],
+        ".mpg": ["-c:v", "mpeg2video", "-q:v", "4"],
+        ".mpeg": ["-c:v", "mpeg2video", "-q:v", "4"],
+        ".ogv": ["-c:v", "libtheora", "-q:v", "6"],
+        ".wmv": ["-c:v", "wmv2", "-q:v", "4"],
+        ".asf": ["-c:v", "wmv2", "-q:v", "4"],
+    }.get(ext, ["-c:v", "libx264", "-crf", "18", "-preset", "medium"])
+    copy_ok = ext in {".mp4", ".m4v", ".mov", ".mkv", ".flv", ".ts",
+                      ".m2ts", ".3gp", ".3g2", ".f4v", ".mxf"}
+    if copy_ok:
+        try:
+            run_ffmpeg(["-i", video, "-i", audio,
+                        "-map", "0:v:0", "-map", "1:a:0",
+                        "-c:v", "copy"] + acodec + ["-shortest", out], log)
+            return out
+        except RuntimeError:
+            if log:
+                log("视频流复制失败，改为重编码 %s……" % ext)
+    run_ffmpeg(["-i", video, "-i", audio,
+                "-map", "0:v:0", "-map", "1:a:0"] + vcodec + acodec +
+               ["-shortest", out], log)
+    return out
 
 
 def _process_chunk(args):
@@ -347,9 +439,11 @@ def process_file(src, dst, mode="auto", family="correlated", passes=3,
         else:
             target = int(out_sr) if out_sr else proc_sr
             if target != proc_sr:
-                resample(out16, dst, target, log)
+                tmp_target = os.path.join(tmp, "out_target.wav")
+                resample(out16, tmp_target, target, log)
+                encode_audio(tmp_target, dst, target, log)
             else:
-                shutil.copyfile(out16, dst)
+                encode_audio(out16, dst, target, log)
         if log:
             if info_out and "achieved_db" in info_out:
                 log("目标 %.1f dB → 实测 %.2f dB（dose c=%.3f，%s）" % (

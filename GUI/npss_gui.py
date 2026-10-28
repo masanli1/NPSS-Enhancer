@@ -32,7 +32,7 @@ class App:
         self._plot_img = None
         self._last_plot_path = None
         self._spec_lut = None
-        root.title("NPSS 降噪 — 多统计 Gmin 最佳版 v2.9.1")
+        root.title("NPSS 降噪 — 多统计 Gmin 最佳版 v2.9.2")
         root.geometry("900x790")
         root.minsize(760, 620)
 
@@ -49,7 +49,7 @@ class App:
         main.pack(fill="both", expand=True)
         main.columnconfigure(1, weight=1)
 
-        ttk.Label(main, text="NPSS 降噪 — 多统计 Gmin 最佳版 v2.9.1",
+        ttk.Label(main, text="NPSS 降噪 — 多统计 Gmin 最佳版 v2.9.2",
                   font=("PingFang SC", 16, "bold")).grid(
             row=0, column=0, columnspan=4, sticky="w", pady=(0, 12))
 
@@ -188,11 +188,14 @@ class App:
         self.log.see("end")
 
     def browse_input(self):
+        ap = " ".join("*" + e for e in sorted(engine.AUDIO_EXTS))
+        vp = " ".join("*" + e for e in sorted(engine.VIDEO_EXTS))
         p = filedialog.askopenfilename(
             title="选择音频或视频",
-            filetypes=[("媒体文件", "*.*"),
-                       ("音频", "*.wav *.mp3 *.flac *.m4a *.aac *.ogg"),
-                       ("视频", "*.mp4 *.mov *.mkv *.avi *.webm *.m4v")])
+            filetypes=[("所有支持的媒体", ap + " " + vp),
+                       ("音频", ap),
+                       ("视频", vp),
+                       ("所有文件", "*.*")])
         if not p:
             return
         self.in_var.set(p)
@@ -206,10 +209,19 @@ class App:
 
     def browse_output(self):
         video = self.mode_var.get() == "video"
-        ext = ".mp4" if video else ".wav"
+        if video:
+            pat = " ".join("*" + e for e in sorted(engine.VIDEO_OUT_EXTS))
+            types = [("视频", pat), ("MP4", "*.mp4"), ("MKV", "*.mkv"),
+                     ("WebM", "*.webm"), ("MOV", "*.mov"), ("AVI", "*.avi")]
+            ext = ".mp4"
+        else:
+            pat = " ".join("*" + e for e in sorted(engine.AUDIO_OUT_EXTS))
+            types = [("音频", pat), ("WAV", "*.wav"), ("FLAC", "*.flac"),
+                     ("MP3", "*.mp3"), ("M4A", "*.m4a"), ("OGG", "*.ogg"),
+                     ("Opus", "*.opus"), ("AIFF", "*.aiff")]
+            ext = ".wav"
         p = filedialog.asksaveasfilename(
-            title="保存为", defaultextension=ext,
-            filetypes=[("MP4 视频", "*.mp4")] if video else [("WAV 音频", "*.wav")])
+            title="保存为", defaultextension=ext, filetypes=types)
         if p:
             self.out_var.set(p)
 
@@ -229,9 +241,9 @@ class App:
         if not p:
             return
         base, ext = os.path.splitext(p)
-        if self.mode_var.get() == "video" and ext.lower() not in (".mp4", ".mov", ".mkv"):
+        if self.mode_var.get() == "video" and ext.lower() not in engine.VIDEO_OUT_EXTS:
             self.out_var.set(base + ".mp4")
-        elif self.mode_var.get() == "audio" and ext.lower() != ".wav":
+        elif self.mode_var.get() == "audio" and ext.lower() not in engine.AUDIO_OUT_EXTS:
             self.out_var.set(base + ".wav")
 
     def start(self):

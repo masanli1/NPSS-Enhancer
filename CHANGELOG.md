@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.9.2 — 2026-10-28
+
+- Broad media-format support: 20+ audio input extensions and 20+ video
+  input extensions through the bundled ffmpeg.
+- Audio output codecs follow the output extension: WAV/FLAC/MP3/M4A/AAC/
+  OGG/Opus/AIFF/WMA/MKA/AC3/EAC3/MP2/CAF/AU.
+- Video output: MP4/M4V/MOV/MKV/AVI/WEBM/FLV/TS/M2TS/MPG/MPEG/3GP/3G2/OGV/
+  WMV/ASF; stream-copy when compatible, otherwise codec-matched re-encode
+  (H.264/AAC, VP9/Opus, MPEG-4/MP3, MPEG-2/MP2, Theora/Vorbis, WMV2/WMA).
+- GUI file dialogs list all supported input/output types.
+- CLI now accepts any input container and selects output codec by extension.
+- No algorithm change: default profile and quality numbers stay v2.9.1.
+
 ## 2.9.1 — 2026-10-26
 
 - New GUI/CLI profile **均衡（频率+结构）** / `blend`: `0.5*(freq + struct)`.
