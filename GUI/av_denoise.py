@@ -22,7 +22,14 @@ import subprocess
 import sys
 import tempfile
 
+import os as _os
+# 单线程 BLAS：小矩阵/小批量下反而更快（Accelerate 多线程开销大）
+for _k in ("VECLIB_MAXIMUM_THREADS", "OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS",
+           "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
+    _os.environ.setdefault(_k, "1")
+
 import numpy as np
+from concurrent.futures import ProcessPoolExecutor
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -80,8 +87,22 @@ def _denoise_audio(src_wav, dst_wav, target_db=None, fast=False, content="voice"
     return y, sr
 
 
+def _denoise_chunk(args):
+    """Worker: 解码后的若干帧（uint8 bytes）-> 降噪后的 bytes。"""
+    bufs, H, W, sigma, spins = args
+    import numpy as np
+    import npss_image as M
+    out = []
+    for b in bufs:
+        f = np.frombuffer(b, np.uint8).reshape(H, W, 3).astype(np.float32) / 255.0
+        y = M.denoise(f, sigma=sigma, spins=spins)
+        out.append((np.clip(y, 0, 1) * 255 + 0.5).astype(np.uint8).tobytes())
+    return out
+
+
 def denoise_video(src, dst, sigma=None, audio_target=None, fast=False,
-                  spins=None, max_frames=None, crf=18, content="voice", log=print):
+                  spins=None, max_frames=None, crf=18, content="voice",
+                  workers=None, chunk=8, log=print):
     """同时降画面与声音。
 
     sigma       : 画面噪声 std（0-255 标度）；None = 自动估计
@@ -124,21 +145,58 @@ def denoise_video(src, dst, sigma=None, audio_target=None, fast=False,
     cmd += [dst]
     enc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
 
+    if workers is None:
+        workers = max(1, min(8, os.cpu_count() or 4))
+    sig = None if sigma is None else sigma / 255.0
     n = 0
     fsz = W * H * 3
+    pool = None
+    if workers > 1:
+        import multiprocessing as _mp
+        try:
+            ctx = _mp.get_context("fork")     # 快，且不受 __main__ 重导入影响
+        except ValueError:
+            ctx = _mp.get_context()
+        pool = ProcessPoolExecutor(max_workers=workers, mp_context=ctx)
+    pending = []
+    done_frames = 0
+
+    def flush(oldest=False):
+        nonlocal done_frames
+        while pending and (oldest or len(pending) >= workers * 2):
+            fut = pending.pop(0)
+            for b in fut.result():
+                enc.stdin.write(b)
+                done_frames += 1
+            if done_frames % 24 == 0 or oldest:
+                log("  已处理 %d 帧" % done_frames)
+
     while True:
-        buf = dec.stdout.read(fsz)
-        if len(buf) < fsz:
+        bufs = []
+        for _ in range(int(chunk)):
+            buf = dec.stdout.read(fsz)
+            if len(buf) < fsz:
+                break
+            bufs.append(buf)
+            n += 1
+            if max_frames and n >= max_frames:
+                break
+        if not bufs:
             break
-        frame = np.frombuffer(buf, np.uint8).reshape(H, W, 3).astype(np.float32) / 255.0
-        out = IMG.denoise(frame, sigma=None if sigma is None else sigma / 255.0,
-                          spins=spins)
-        enc.stdin.write((np.clip(out, 0, 1) * 255 + 0.5).astype(np.uint8).tobytes())
-        n += 1
-        if n % 10 == 0:
-            log("  已处理 %d 帧" % n)
+        if pool is None:
+            for b in _denoise_chunk((bufs, H, W, sig, spins)):
+                enc.stdin.write(b)
+                done_frames += 1
+            if done_frames % 24 == 0:
+                log("  已处理 %d 帧" % done_frames)
+        else:
+            pending.append(pool.submit(_denoise_chunk, (bufs, H, W, sig, spins)))
+            flush()
         if max_frames and n >= max_frames:
             break
+    flush(oldest=True)
+    if pool is not None:
+        pool.shutdown(wait=True)
     try:
         enc.stdin.close()
     except BrokenPipeError:

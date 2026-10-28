@@ -11,6 +11,12 @@
 """
 from __future__ import annotations
 
+import os as _os
+# 单线程 BLAS：小矩阵/小批量下反而更快（Accelerate 多线程开销大）
+for _k in ("VECLIB_MAXIMUM_THREADS", "OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS",
+           "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
+    _os.environ.setdefault(_k, "1")
+
 import numpy as np
 
 EPS = 1e-12
@@ -107,12 +113,19 @@ def _merge_blocks(b, shape):
     return out
 
 
+# 2-D DCT as one 64x64 matrix: vec(D P D^T) = kron(D, D) vec(P)
+_K = np.kron(_D, _D)
+_KT = np.ascontiguousarray(_K.T)
+
+
 def _dct2(p):
-    return np.einsum("ij,...jk,lk->...il", _D, p, _D)
+    sh = p.shape[:-2]
+    return (p.reshape(-1, 64) @ _KT).reshape(sh + (8, 8))
 
 
 def _idct2(c):
-    return np.einsum("ij,...il,lk->...jk", _D, c, _D)
+    sh = c.shape[:-2]
+    return (c.reshape(-1, 64) @ _K).reshape(sh + (8, 8))
 
 
 def _estimate_sigma(a):

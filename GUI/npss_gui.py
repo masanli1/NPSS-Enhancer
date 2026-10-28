@@ -7,6 +7,12 @@ import queue
 import threading
 import subprocess
 import tempfile
+import os as _os
+# 单线程 BLAS：小矩阵/小批量下反而更快（Accelerate 多线程开销大）
+for _k in ("VECLIB_MAXIMUM_THREADS", "OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS",
+           "MKL_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
+    _os.environ.setdefault(_k, "1")
+
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageTk
 import tkinter as tk

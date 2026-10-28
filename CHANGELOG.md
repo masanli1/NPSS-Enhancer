@@ -1,5 +1,16 @@
 # Changelog
 
+## 3.0.1 — 2026-10-29
+
+- **Image/video speed-up.** The 2-D DCT is now one 64x64 Kronecker matrix
+  instead of two einsum contractions (4.7x on the transform), the BLAS thread
+  count is pinned to 1 (Accelerate's small-batch threading was pure overhead:
+  2.2x end-to-end), and video frames are filtered in parallel fork workers
+  (up to 6x on the frame stage with 8 workers).
+  End-to-end on the 768x512 / 24-frame test clip: 18.6 s -> 7.4 s.
+- Output is bit-identical to 3.0.0 (same PSNR/SSIM); `npss_image.denoise`
+  exposes the same signature.
+
 ## 3.0.0 — 2026-10-29
 
 - **Image denoising is now part of the app.** `GUI/npss_image.py`: 8x8 block
