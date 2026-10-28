@@ -1,5 +1,25 @@
 # Changelog
 
+## 3.0.0 — 2026-10-29
+
+- **Image denoising is now part of the app.** `GUI/npss_image.py`: 8x8 block
+  DCT, 3-sigma hard threshold (DC protected), 16-phase cycle-spinning.
+  Picker accepts PNG/JPG/JPEG/BMP/TIF/TIFF/WebP/PPM/PGM/JP2; new "图片 PNG"
+  mode in the GUI.
+  Benchmarks (5 Kodak images, grayscale, AWGN): 27.90 dB / SSIM 0.7785 at
+  sigma=25 and 24.08 dB / 0.6392 at sigma=50, i.e. +2.2 / +1.4 dB over a
+  Gaussian blur and +3.2 / +3.4 dB over a 3x3 median.
+- **Video mode denoises the picture too.** New `GUI/av_denoise.py` decodes the
+  frames through ffmpeg, filters each frame with NPSS-Image, denoises the
+  soundtrack with the existing NPSS audio path, and re-muxes H.264/AAC.
+  The GUI has a "视频画面也降噪" checkbox (on by default); turning it off
+  reproduces the old audio-replacement behaviour.
+  Test clip (768x512, 12 fps): frame PSNR 27.18 -> 30.53 dB, audio SNR
+  6.83 -> 9.51 dB.
+- `engine.process_video_av()` is the programmatic entry point for the
+  combined video pipeline.
+- The GUI keeps every previous audio option unchanged.
+
 ## 2.9.2 — 2026-10-28
 
 - Broad media-format support: 20+ audio input extensions and 20+ video

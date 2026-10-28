@@ -4,12 +4,36 @@ Author: [masanli1](https://github.com/masanli1) · Repository: [NPSS-Enhancer](h
 
 [中文说明](README.zh-CN.md)
 
-> **v2.9.2: broad media-format support + quality profiles on the four views; no hard target in the GUI.**
+> **v3.0.0: the same training-free denoiser now also handles images and video frames.**
+>
+> **Images:** 8x8 block DCT, 3-sigma threshold, 16-phase cycle-spinning — 27.90 / 24.08 dB on Kodak at sigma=25 / 50.
+> **Video:** picture and soundtrack are denoised together (`GUI/av_denoise.py`).
 >
 > **No training. No GPU. +2.7 dB SI-SDR over SpecSub.**
 > A training-free general denoiser that raises the floor, not the SOTA ceiling.
 
-**Perturbation-stable pivot denoising for speech and music.** CPU-only, interpretable, GUI + CLI, with an optional NMF speech blend.
+**Perturbation-stable pivot denoising for speech, music, and images.** CPU-only, interpretable, GUI + CLI, with an optional NMF speech blend.
+
+## v3.0: images and video
+
+| Input | What is denoised | Entry |
+|---|---|---|
+| audio | soundtrack | `engine.process_file` |
+| video | soundtrack **and** every frame | `engine.process_video_av` / GUI checkbox "视频画面也降噪" |
+| image | the picture | `GUI/npss_image.py` (`denoise`), GUI mode "图片 PNG" |
+
+Image quality (5 Kodak images, grayscale, additive white noise, 0-255 scale):
+
+| sigma | noisy | Gaussian | median 3x3 | NPSS-Image |
+|---|---|---|---|---|
+| 25 | 20.43 | 25.71 | 24.70 | **27.90** |
+| 50 | 14.91 | 22.65 | 20.72 | **24.08** |
+
+The image filter is the same idea as the audio one — relative to the estimated
+noise floor, DC/low band protected, ensembling over perturbations (here:
+16 sub-pixel grid phases) — but the structure decision is made by coefficient
+magnitude rather than by pivot stability; the stability variants were measured
+and did not beat it on images (see `图像降噪/NPSS-Best/README.md`).
 
 ## Results (30 held-out VoiceBank-DEMAND pairs, 16 kHz)
 

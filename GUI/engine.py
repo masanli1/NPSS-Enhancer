@@ -455,3 +455,23 @@ def process_file(src, dst, mode="auto", family="correlated", passes=3,
         return dst
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def process_video_av(src, dst, sigma=None, audio_target=None, fast=False,
+                     spins=None, max_frames=None, crf=18, content="voice",
+                     log=None):
+    """视频一体化降噪：画面 + 声音同时处理。
+
+    画面用 NPSS-Image（8x8 DCT 3σ + cycle-spin），声音用本文件的
+    denoise_array（NPSS 多统计 Gmin）。实现见 ``av_denoise.py``。
+
+    sigma        : 画面噪声 std（0-255 标度）；None = 自动估计
+    audio_target : 音频目标降噪 dB（定果寻因）；None = 默认
+    fast         : True 时画面单相位（快约 4 倍）
+    content      : 音轨类型 "voice" / "music"
+    """
+    import av_denoise
+    return av_denoise.denoise_video(
+        src, dst, sigma=sigma, audio_target=audio_target, fast=fast,
+        spins=spins, max_frames=max_frames, crf=crf, content=content,
+        log=log or (lambda m: print(m, flush=True)))

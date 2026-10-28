@@ -14,6 +14,9 @@ from tkinter import ttk, filedialog, messagebox
 from tkinter.scrolledtext import ScrolledText
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+
+IMG_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp",
+            ".ppm", ".pgm", ".jp2"}
 sys.path.insert(0, HERE)
 import engine
 import common as C
@@ -32,7 +35,7 @@ class App:
         self._plot_img = None
         self._last_plot_path = None
         self._spec_lut = None
-        root.title("NPSS 降噪 — 多统计 Gmin 最佳版 v2.9.2")
+        root.title("NPSS 降噪 v3.0 — 音频 / 视频 / 图片 一体化")
         root.geometry("900x790")
         root.minsize(760, 620)
 
@@ -49,7 +52,7 @@ class App:
         main.pack(fill="both", expand=True)
         main.columnconfigure(1, weight=1)
 
-        ttk.Label(main, text="NPSS 降噪 — 多统计 Gmin 最佳版 v2.9.2",
+        ttk.Label(main, text="NPSS 降噪 v3.0 — 音频 / 视频 / 图片 一体化",
                   font=("PingFang SC", 16, "bold")).grid(
             row=0, column=0, columnspan=4, sticky="w", pady=(0, 12))
 
@@ -72,6 +75,7 @@ class App:
         self.workers_var = tk.StringVar(value=str(min(os.cpu_count() or 4, 8)))
         self.auto_var = tk.BooleanVar(value=True)
         self.profile_var = tk.StringVar(value="频率优先（PESQ/STOI）")
+        self.frames_var = tk.BooleanVar(value=True)
 
         ttk.Label(main, text="输入").grid(row=1, column=0, sticky="w", pady=4)
         ttk.Entry(main, textvariable=self.in_var).grid(
@@ -89,10 +93,12 @@ class App:
         mode.grid(row=3, column=0, columnspan=4, sticky="w", pady=(8, 2))
         ttk.Label(mode, text="模式").pack(side="left", padx=(0, 8))
         for text, val in [("自动", "auto"), ("音频 WAV", "audio"),
-                          ("视频 MP4（替换音轨）", "video")]:
+                          ("视频 MP4", "video"), ("图片 PNG", "image")]:
             ttk.Radiobutton(mode, text=text, value=val,
                             variable=self.mode_var,
                             command=self.on_mode).pack(side="left", padx=4)
+        ttk.Checkbutton(mode, text="视频画面也降噪", variable=self.frames_var).pack(
+            side="left", padx=(14, 0))
 
         content = ttk.Frame(main)
         content.grid(row=4, column=0, columnspan=4, sticky="w", pady=(2, 0))
@@ -190,17 +196,20 @@ class App:
     def browse_input(self):
         ap = " ".join("*" + e for e in sorted(engine.AUDIO_EXTS))
         vp = " ".join("*" + e for e in sorted(engine.VIDEO_EXTS))
+        ip = " ".join("*" + e for e in sorted(IMG_EXTS))
         p = filedialog.askopenfilename(
-            title="选择音频或视频",
-            filetypes=[("所有支持的媒体", ap + " " + vp),
-                       ("音频", ap),
-                       ("视频", vp),
+            title="选择音频 / 视频 / 图片",
+            filetypes=[("所有支持的媒体", ip + " " + ap + " " + vp),
+                       ("图片", ip), ("音频", ap), ("视频", vp),
                        ("所有文件", "*.*")])
         if not p:
             return
         self.in_var.set(p)
         base, ext = os.path.splitext(p)
-        if ext.lower() in engine.VIDEO_EXTS:
+        if ext.lower() in IMG_EXTS:
+            self.mode_var.set("image")
+            self.out_var.set(base + "_denoised.png")
+        elif ext.lower() in engine.VIDEO_EXTS:
             self.mode_var.set("video")
             self.out_var.set(base + "_denoised.mp4")
         else:
@@ -241,6 +250,10 @@ class App:
         if not p:
             return
         base, ext = os.path.splitext(p)
+        if self.mode_var.get() == "image":
+            if ext.lower() not in IMG_EXTS:
+                self.out_var.set(base + "_denoised.png")
+            return
         if self.mode_var.get() == "video" and ext.lower() not in engine.VIDEO_OUT_EXTS:
             self.out_var.set(base + ".mp4")
         elif self.mode_var.get() == "audio" and ext.lower() not in engine.AUDIO_OUT_EXTS:
@@ -264,6 +277,10 @@ class App:
         self.status.config(text="处理中…")
         self.log_line("—— 开始 ——")
         mode = self.mode_var.get()
+        if mode == "image":
+            threading.Thread(target=self.worker_image, args=(src, dst),
+                             daemon=True).start()
+            return
         fam = self.family_var.get()
         try:
             passes = max(1, min(5, int(self.passes_var.get())))
@@ -309,8 +326,32 @@ class App:
                              daemon=True)
         t.start()
 
+    def worker_image(self, src, dst):
+        try:
+            import numpy as np
+            from PIL import Image
+            import npss_image as M
+            self.q.put(("log", "图片降噪：自动估计噪声 …"))
+            img = Image.open(src).convert("RGB")
+            a = M.to_float(img)
+            sig = float(np.median(np.abs(M.luma(a) - M.gaussian_blur(M.luma(a), 1.2))) / 0.6745)
+            self.q.put(("log", "噪声 σ ≈ %.1f/255" % (sig * 255)))
+            out = M.denoise(a, sigma=sig)
+            Image.fromarray(M.to_uint8(out)).save(dst)
+            self.q.put(("done", dst))
+        except Exception as e:
+            self.q.put(("error", str(e)))
+
     def worker(self, src, dst, mode, fam, passes, chunk, proc_sr, iterations, inject, auto, theta, support, backend, workers, content, complement, loops, multi, fast, profile="freq", target=None):
         try:
+            if mode == "video" and self.frames_var.get():
+                import av_denoise
+                self.q.put(("log", "视频：音轨 + 画面同时降噪"))
+                av_denoise.denoise_video(
+                    src, dst, sigma=None, audio_target=target, fast=fast,
+                    content=content, log=lambda s: self.q.put(("log", s)))
+                self.q.put(("done", dst))
+                return
             engine.process_file(
                 src, dst, mode=mode, family=fam, passes=passes,
                 chunk_sec=chunk, proc_sr=proc_sr, out_sr=proc_sr,

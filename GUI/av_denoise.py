@@ -1,0 +1,177 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""视频降噪：一个文件同时降画面和声音。
+
+    输入视频
+      ├─ 音轨 → ffmpeg 抽成 wav → NPSS 音频降噪（engine.denoise_array）
+      └─ 画面 → ffmpeg 解成 rgb24 帧 → NPSS-Image 逐帧降噪
+    两路再合成输出视频
+
+用法：
+    python3 av_denoise.py in.mp4 out.mp4                 # 自动
+    python3 av_denoise.py in.mp4 out.mp4 --sigma 25 --audio-target 12
+    python3 av_denoise.py in.mp4 out.mp4 --fast          # 单相位，快 4 倍
+
+依赖：numpy、imageio_ffmpeg（自带 ffmpeg）。
+"""
+from __future__ import annotations
+
+import os
+import re
+import subprocess
+import sys
+import tempfile
+
+import numpy as np
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+
+import common as C
+import engine as E
+import npss_image as IMG
+
+
+def _ffmpeg():
+    p = E.find_ffmpeg()
+    if p:
+        return p
+    from imageio_ffmpeg import get_ffmpeg_exe
+    return get_ffmpeg_exe()
+
+
+def probe(path):
+    """Parse ffmpeg -i output -> dict(width, height, fps, has_audio, sr)."""
+    ff = _ffmpeg()
+    r = subprocess.run([ff, "-hide_banner", "-i", path], capture_output=True, text=True)
+    txt = r.stderr
+    info = dict(width=None, height=None, fps=None, has_audio=False, sr=48000)
+    m = re.search(r"Video:.*?(\d{2,5})x(\d{2,5})", txt)
+    if m:
+        info["width"], info["height"] = int(m.group(1)), int(m.group(2))
+    m = re.search(r"(\d+(?:\.\d+)?)\s+fps", txt)
+    if m:
+        info["fps"] = float(m.group(1))
+    m = re.search(r"Audio:.*?(\d{4,6})\s*Hz", txt)
+    if m:
+        info["has_audio"] = True
+        info["sr"] = int(m.group(1))
+    else:
+        info["has_audio"] = "Audio:" in txt
+    return info
+
+
+def _extract_audio(src, dst):
+    ff = _ffmpeg()
+    subprocess.run([ff, "-y", "-hide_banner", "-loglevel", "error", "-i", src,
+                    "-vn", "-ac", "2", "-ar", "48000", "-c:a", "pcm_s16le", dst],
+                   check=True)
+
+
+def _denoise_audio(src_wav, dst_wav, target_db=None, fast=False, content="voice", log=print):
+    x, sr = C.read_wav_stereo(src_wav)
+    chans = []
+    for c in range(x.shape[1]):
+        y = E.denoise_array(x[:, c], sr, multi_stat=True, fast=fast,
+                            target_nr_db=target_db, content_mode=content)
+        chans.append(y)
+    y = np.stack(chans, axis=1)
+    C.write_wav_stereo(dst_wav, y, sr)
+    return y, sr
+
+
+def denoise_video(src, dst, sigma=None, audio_target=None, fast=False,
+                  spins=None, max_frames=None, crf=18, content="voice", log=print):
+    """同时降画面与声音。
+
+    sigma       : 画面噪声 std（0-255 标度）；None = 自动估计
+    audio_target: 音频目标降噪 dB（定果寻因）；None = 默认
+    fast        : True 时画面用单相位（快约 4 倍）
+    spins       : 画面相位密度（1/2/4），默认 fast ? 1 : 2
+    """
+    ff = _ffmpeg()
+    info = probe(src)
+    W, H, fps = info["width"], info["height"], info["fps"] or 25.0
+    if not W or not H:
+        raise RuntimeError("无法解析视频尺寸: %s" % src)
+    if spins is None:
+        spins = 1 if fast else 2
+    log("输入 %dx%d @ %.2f fps  音频=%s" % (W, H, fps, info["has_audio"]))
+
+    tmp = tempfile.mkdtemp(prefix="npss_av_")
+    awav = os.path.join(tmp, "in.wav")
+    bwav = os.path.join(tmp, "out.wav")
+    if info["has_audio"]:
+        _extract_audio(src, awav)
+        log("音频降噪中 ...")
+        _denoise_audio(awav, bwav, target_db=audio_target, fast=fast,
+                       content=content, log=log)
+        log("音频完成")
+
+    # 解码 -> 逐帧降噪 -> 编码
+    dec = subprocess.Popen([ff, "-hide_banner", "-loglevel", "error", "-i", src,
+                            "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+                           stdout=subprocess.PIPE)
+    cmd = [ff, "-y", "-hide_banner", "-loglevel", "error",
+           "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", "%dx%d" % (W, H),
+           "-r", "%.6f" % fps, "-i", "-"]
+    if info["has_audio"]:
+        cmd += ["-i", bwav]
+    cmd += ["-c:v", "libx264", "-preset", "medium", "-crf", str(crf),
+            "-pix_fmt", "yuv420p"]
+    if info["has_audio"]:
+        cmd += ["-c:a", "aac", "-b:a", "192k", "-shortest"]
+    cmd += [dst]
+    enc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+
+    n = 0
+    fsz = W * H * 3
+    while True:
+        buf = dec.stdout.read(fsz)
+        if len(buf) < fsz:
+            break
+        frame = np.frombuffer(buf, np.uint8).reshape(H, W, 3).astype(np.float32) / 255.0
+        out = IMG.denoise(frame, sigma=None if sigma is None else sigma / 255.0,
+                          spins=spins)
+        enc.stdin.write((np.clip(out, 0, 1) * 255 + 0.5).astype(np.uint8).tobytes())
+        n += 1
+        if n % 10 == 0:
+            log("  已处理 %d 帧" % n)
+        if max_frames and n >= max_frames:
+            break
+    try:
+        enc.stdin.close()
+    except BrokenPipeError:
+        pass
+    if max_frames and n >= max_frames:
+        dec.kill()
+    else:
+        dec.stdout.close()
+    enc.wait()
+    dec.wait()
+    if info["has_audio"]:
+        try:
+            os.remove(awav); os.remove(bwav)
+        except OSError:
+            pass
+    log("输出 %s（%d 帧）" % (dst, n))
+    return dst
+
+
+if __name__ == "__main__":
+    import argparse
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("input")
+    ap.add_argument("output")
+    ap.add_argument("--sigma", type=float, default=None, help="画面噪声 std（0-255）")
+    ap.add_argument("--audio-target", type=float, default=None, help="音频目标降噪 dB")
+    ap.add_argument("--fast", action="store_true")
+    ap.add_argument("--spins", type=int, default=None)
+    ap.add_argument("--max-frames", type=int, default=None)
+    ap.add_argument("--content", choices=["voice", "music"], default="voice",
+                    help="音轨内容类型（默认 voice）")
+    a = ap.parse_args()
+    denoise_video(a.input, a.output, sigma=a.sigma, audio_target=a.audio_target,
+                  fast=a.fast, spins=a.spins, max_frames=a.max_frames,
+                  content=a.content, log=lambda m: print(m, flush=True))
