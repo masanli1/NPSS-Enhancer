@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.1.1 — 2026-10-29
+
+- **Trajectory video denoising is now streaming.** Frames are decoded, flowed
+  and accumulated in a ring buffer (2r+1 frames) instead of loading the whole
+  clip; output is piped straight into the encoder. Long videos no longer need
+  O(n) memory.
+- Flow search moved to 1/4 resolution and warping uses flat-index bilinear
+  sampling: 1440x1920 drops from ~4 s/frame to ~2.2 s/frame, 1080p is ~1.2 s.
+- Automatic noise estimate now runs as a short pre-pass (8 frames).
+
 ## 3.1.0 — 2026-10-29
 
 - **Video denoising now accumulates along motion trajectories.** New

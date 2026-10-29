@@ -2,135 +2,89 @@
 # -*- coding: utf-8 -*-
 """沿运动轨迹的多帧累积降噪（连贯性繁衍）。
 
-每一帧都沿自己的运动轨迹与相邻帧对齐，然后加权合并；不做前景/背景分割，
-运动主体和静止背景一样参与累积。
+每帧沿自己的运动轨迹与相邻帧对齐后加权合并；不做前景/背景分割，
+运动主体与静止背景一样参与累积。
 """
 from __future__ import annotations
 
 import numpy as np
 
-import common as C
 import npss_image as M
 
-
-def flow_tiles(a, b, tile=64, stride=32, max_shift=None):
-    """分块相位相关得到稠密光流（把 b 对齐到 a 的位移场）。"""
-    H, W = a.shape[:2]
-    ga, gb = M.luma(a), M.luma(b)
-    U = np.zeros((H, W), np.float32)
-    V = np.zeros((H, W), np.float32)
-    Wt = np.zeros((H, W), np.float32)
-    ys = list(range(0, max(1, H - tile) + 1, stride))
-    xs = list(range(0, max(1, W - tile) + 1, stride))
-    for y0 in ys:
-        for x0 in xs:
-            ta = ga[y0:y0 + tile, x0:x0 + tile]
-            tb = gb[y0:y0 + tile, x0:x0 + tile]
-            dy, dx = _pc(ta, tb)
-            yy = slice(y0, min(y0 + tile, H))
-            xx = slice(x0, min(x0 + tile, W))
-            U[yy, xx] += dx
-            V[yy, xx] += dy
-            Wt[yy, xx] += 1.0
-    Wt = np.maximum(Wt, 1.0)
-    U /= Wt
-    V /= Wt
-    U = M.gaussian_blur(U, tile / 2.0)
-    V = M.gaussian_blur(V, tile / 2.0)
-    return U, V
+_GRID = {}
 
 
-def _pc(a, b):
-    A = np.fft.rfft2(a - a.mean())
-    B = np.fft.rfft2(b - b.mean())
-    R = A * np.conj(B)
-    R /= np.abs(R) + 1e-9
-    c = np.fft.irfft2(R, s=a.shape)
-    iy, ix = np.unravel_index(np.argmax(c), c.shape)
-
-    def sub(axis):
-        if axis == 0:
-            y0, y1, y2 = c[(iy - 1) % c.shape[0], ix], c[iy, ix], c[(iy + 1) % c.shape[0], ix]
-        else:
-            y0, y1, y2 = c[iy, (ix - 1) % c.shape[1]], c[iy, ix], c[iy, (ix + 1) % c.shape[1]]
-        return (y0 - y2) / (2 * (y0 - 2 * y1 + y2) + 1e-12)
-
-    dy, dx = iy + sub(0), ix + sub(1)
-    if dy > a.shape[0] // 2:
-        dy -= a.shape[0]
-    if dx > a.shape[1] // 2:
-        dx -= a.shape[1]
-    return float(dy), float(dx)
+def _grid(H, W):
+    if (H, W) not in _GRID:
+        yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+        _GRID[(H, W)] = (yy, xx)
+    return _GRID[(H, W)]
 
 
-def warp(img, u, v):
-    H, W = img.shape[:2]
-    yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
-    gx = np.clip(xx + u, 0, W - 1.001)
-    gy = np.clip(yy + v, 0, H - 1.001)
-    x0 = gx.astype(np.int32)
-    y0 = gy.astype(np.int32)
-    fx = (gx - x0)[..., None]
-    fy = (gy - y0)[..., None]
-    return (img[y0, x0] * (1 - fx) * (1 - fy) + img[y0, x0 + 1] * fx * (1 - fy)
-            + img[y0 + 1, x0] * (1 - fx) * fy + img[y0 + 1, x0 + 1] * fx * fy)
+def _box_down(a, f):
+    if f <= 1:
+        return a
+    h, w = a.shape[0] // f * f, a.shape[1] // f * f
+    return a[:h, :w].reshape(h // f, f, w // f, f).mean((1, 3))
 
 
-def accumulate(frames, flows, idx, radius=3):
-    """以 idx 为中心，沿轨迹累积 ±radius 帧。"""
-    n = len(frames)
-    acc = frames[idx].astype(np.float64)
-    cnt = np.ones(frames[idx].shape[:2])
-    # 向前
-    cur = frames[idx]
-    u_sum = np.zeros(frames[idx].shape[:2], np.float32)
-    v_sum = np.zeros_like(u_sum)
-    for k in range(1, radius + 1):
-        j = idx + k
-        if j >= n:
-            break
-        u, v = flows[j - 1]
-        u_sum += u
-        v_sum += v
-        cur = warp(frames[j], u_sum, v_sum)
-        acc += cur
-        cnt += 1
-    # 向后
-    u_sum = np.zeros(frames[idx].shape[:2], np.float32)
-    v_sum = np.zeros_like(u_sum)
-    for k in range(1, radius + 1):
-        j = idx - k
-        if j < 0:
-            break
-        u, v = flows[j]        # flow[j]: 帧 j -> j+1；反向取负
-        u_sum -= u
-        v_sum -= v
-        cur = warp(frames[j], u_sum, v_sum)
-        acc += cur
-        cnt += 1
-    return np.clip(acc / cnt[..., None], 0, 1).astype(np.float32)
-
-
-def bm_flow(a, b, B=8, R=6):
-    """向量化块匹配光流（把 b 对齐到 a 的整数位移场，再平滑）。"""
-    ga, gb = M.luma(a), M.luma(b)
+def bm_flow(a, b, B=8, R=6, scale=4):
+    """块匹配光流：在 1/scale 分辨率上搜索，再放大回全分辨率。"""
+    ga = _box_down(M.luma(a), scale)
+    gb = _box_down(M.luma(b), scale)
     H, W = ga.shape
     ny, nx = H // B, W // B
     A = ga[:ny * B, :nx * B].reshape(ny, B, nx, B)
     best = np.full((ny, nx), 1e9, np.float32)
     U = np.zeros((ny, nx), np.float32)
     V = np.zeros_like(U)
+    canvas = np.zeros((ny * B, nx * B), np.float32)
     for dy in range(-R, R + 1):
+        y0, y1 = max(0, dy), min(H, H + dy)
         for dx in range(-R, R + 1):
-            bb = np.roll(gb, (dy, dx), (0, 1))[:ny * B, :nx * B].reshape(ny, B, nx, B)
-            e = ((A - bb) ** 2).sum((1, 3))
+            x0, x1 = max(0, dx), min(W, W + dx)
+            sub = gb[y0:y1, x0:x1]
+            m0, m1 = -min(0, dy), -min(0, dx)
+            canvas[:] = 0.0
+            hh, ww = sub.shape
+            canvas[m0:m0 + hh, m1:m1 + ww] = sub[:min(hh, ny * B - m0), :min(ww, nx * B - m1)]
+            e = ((A - canvas.reshape(ny, B, nx, B)) ** 2).sum((1, 3))
             m = e < best
             best[m] = e[m]
             U[m] = dx
             V[m] = dy
-    Uf = np.kron(U, np.ones((B, B)))[:H, :W]
-    Vf = np.kron(V, np.ones((B, B)))[:H, :W]
-    return M.gaussian_blur(Uf, 3.0), M.gaussian_blur(Vf, 3.0)
+    U = np.repeat(np.repeat(U, B, 0), B, 1)[:H, :W]
+    V = np.repeat(np.repeat(V, B, 0), B, 1)[:H, :W]
+    U = M.gaussian_blur(U, 2.0) * scale
+    V = M.gaussian_blur(V, 2.0) * scale
+    fu = np.repeat(np.repeat(U, scale, 0), scale, 1)
+    fv = np.repeat(np.repeat(V, scale, 0), scale, 1)
+    fu = np.pad(fu, ((0, max(0, a.shape[0] - fu.shape[0])), (0, max(0, a.shape[1] - fu.shape[1]))), mode="edge")
+    fv = np.pad(fv, ((0, max(0, a.shape[0] - fv.shape[0])), (0, max(0, a.shape[1] - fv.shape[1]))), mode="edge")
+    return M.gaussian_blur(fu, 2.0), M.gaussian_blur(fv, 2.0)
+
+
+def warp(img, u, v):
+    """双线性重采样（flat take）。"""
+    H, W = img.shape[:2]
+    yy, xx = _grid(H, W)
+    gx = np.clip(xx + u, 0, W - 1.001)
+    gy = np.clip(yy + v, 0, H - 1.001)
+    x0 = gx.astype(np.int32)
+    y0 = gy.astype(np.int32)
+    fx = gx - x0
+    fy = gy - y0
+    flat = img.reshape(-1, img.shape[2])
+    idx = (y0.ravel() * W + x0.ravel())
+    w00 = ((1 - fx) * (1 - fy)).ravel()[:, None]
+    w01 = (fx * (1 - fy)).ravel()[:, None]
+    w10 = ((1 - fx) * fy).ravel()[:, None]
+    w11 = (fx * fy).ravel()[:, None]
+    out = (flat.take(idx, axis=0) * w00
+           + flat.take(idx + 1, axis=0) * w01
+           + flat.take(idx + W, axis=0) * w10
+           + flat.take(idx + W + 1, axis=0) * w11)
+    return out.reshape(H, W, img.shape[2])
 
 
 def accumulate_weighted(frames, flows, idx, radius=3, sigma=0.04):
@@ -157,7 +111,7 @@ def accumulate_weighted(frames, flows, idx, radius=3, sigma=0.04):
         us = us - u
         vs = vs - v
         st.append(warp(frames[j], us, vs))
-    S_ = np.stack(st)
+    S_ = np.stack(st).astype(np.float32)
     med = np.median(S_, 0)
     res = np.abs(S_ - med).mean(-1)
     w = np.exp(-(res / (2 * sigma)) ** 2)
