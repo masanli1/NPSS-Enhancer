@@ -52,13 +52,17 @@ def probe(path):
     ff = _ffmpeg()
     r = subprocess.run([ff, "-hide_banner", "-i", path], capture_output=True, text=True)
     txt = r.stderr
-    info = dict(width=None, height=None, fps=None, has_audio=False, sr=48000)
+    info = dict(width=None, height=None, fps=None, has_audio=False, sr=48000,
+                duration=None)
     m = re.search(r"Video:.*?(\d{2,5})x(\d{2,5})", txt)
     if m:
         info["width"], info["height"] = int(m.group(1)), int(m.group(2))
     m = re.search(r"(\d+(?:\.\d+)?)\s+fps", txt)
     if m:
         info["fps"] = float(m.group(1))
+    m = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", txt)
+    if m:
+        info["duration"] = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
     m = re.search(r"Audio:.*?(\d{4,6})\s*Hz", txt)
     if m:
         info["has_audio"] = True
@@ -100,6 +104,25 @@ def _denoise_chunk(args):
     return out
 
 
+
+def auto_phases(info, workers, budget=600.0):
+    """按片长/分辨率/预算自动挑相位密度（越大越无接缝、越慢）。"""
+    dur = info.get("duration") or 0.0
+    fps = info.get("fps") or 25.0
+    w = info.get("width") or 1280
+    h = info.get("height") or 720
+    frames = max(1.0, dur * fps)
+    mp = (w * h) / (768.0 * 512.0)          # 相对 768x512 的像素倍数
+    # 768x512 彩色 64 相位约 0.9 s/帧（单进程），并行效率按 0.8 计
+    per_frame_64 = 0.9 * mp
+    eff = max(1.0, workers * 0.8)
+    for ph in (64, 32, 16, 8, 4):
+        est = frames * per_frame_64 * (ph / 64.0) / eff
+        if est <= budget:
+            return ph, est
+    return 4, frames * per_frame_64 * (4 / 64.0) / eff
+
+
 def denoise_video(src, dst, sigma=None, audio_target=None, fast=False,
                   blocks=None, phases=None, max_frames=None, crf=18, content="voice",
                   workers=None, chunk=8, log=print):
@@ -117,8 +140,9 @@ def denoise_video(src, dst, sigma=None, audio_target=None, fast=False,
         raise RuntimeError("无法解析视频尺寸: %s" % src)
     if blocks is None:
         blocks = (8,)
-    if phases is None:
-        phases = 16        # 视频默认 16 相位：全滑动的 64 相位对长片太慢
+    if phases is None or phases == "auto":
+        phases, est = auto_phases(info, max(1, workers or 8))
+        log("画面相位：自动选 %d（预估 %.0f 秒完成画面）" % (phases, est))
     log("输入 %dx%d @ %.2f fps  音频=%s" % (W, H, fps, info["has_audio"]))
 
     tmp = tempfile.mkdtemp(prefix="npss_av_")
@@ -236,6 +260,6 @@ if __name__ == "__main__":
     a = ap.parse_args()
     denoise_video(a.input, a.output, sigma=a.sigma, audio_target=a.audio_target,
                   fast=a.fast, blocks=(4, 8, 16) if a.quality else None,
-                  phases=16 if a.fast else "full",
+                  phases=("full" if a.quality else (16 if a.fast else None)),
                   max_frames=a.max_frames,
                   content=a.content, log=lambda m: print(m, flush=True))

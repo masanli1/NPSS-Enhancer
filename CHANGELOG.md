@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.0.4 — 2026-10-29
+
+- **Automatic phase density for video.** The pipeline now estimates the frame
+  count, resolution and a 10-minute budget, then picks the sliding density:
+  short clips get all 64 offsets (no seams), long ones step down to 32/16/8/4.
+  A 6 s 1440x1920 clip picks 64; a 60 s 1080p clip picks 16; a 5 min 1080p
+  clip picks 4. The choice is logged before processing.
+- `--fast` still forces 16, `--quality` forces full sliding plus multi-scale
+  fusion.
+
 ## 3.0.3 — 2026-10-29
 
 - **Full sliding, no fixed block grid.** The default image path now slides the
