@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.0.2 — 2026-10-29
+
+- **Arbitrary block partitions.** The image filter no longer assumes a fixed
+  8x8 grid: `denoise(..., blocks=(4, 8, 16))` fuses several block sizes, each
+  one sliding over its own sub-pixel offsets (a 4x4 grid uses all 16 offsets).
+  The outputs are averaged, which costs 2-3x time and buys +0.13 to +0.30 dB.
+  Measured (same noise, same metrics):
+  kodim23 sigma=25 32.29 -> 32.58 dB, kodim01 25.95 -> 26.25 dB,
+  sigma=50 28.43 -> 28.56 and 22.95 -> 23.22 dB.
+- `--blocks 4,8,16` on the image CLI; the video CLI gained `--quality`
+  (4/8/16 fusion) while `--fast` keeps the single 8x8 partition.
+- Still local (no non-local grouping), still ~1 dB behind BM3D, still ~20x
+  faster than it.
+
 ## 3.0.1 — 2026-10-29
 
 - **Image/video speed-up.** The 2-D DCT is now one 64x64 Kronecker matrix

@@ -96,7 +96,15 @@ def _dct_mat(n=BLK):
     return d.astype(np.float64)
 
 
-_D = _dct_mat(BLK)
+_MATS = {}
+
+
+def _block_mats(B):
+    if B not in _MATS:
+        D = _dct_mat(B)
+        K = np.kron(D, D)
+        _MATS[B] = (K, np.ascontiguousarray(K.T))
+    return _MATS[B]
 
 
 def _split_blocks(a):
@@ -105,27 +113,10 @@ def _split_blocks(a):
     return a[:ny * BLK, :nx * BLK].reshape(ny, BLK, nx, BLK).transpose(0, 2, 1, 3)
 
 
-def _merge_blocks(b, shape):
-    ny, nx = b.shape[:2]
-    a = b.transpose(0, 2, 1, 3).reshape(ny * BLK, nx * BLK)
-    out = np.zeros(shape, dtype=np.float64)
-    out[:a.shape[0], :a.shape[1]] = a
-    return out
-
-
-# 2-D DCT as one 64x64 matrix: vec(D P D^T) = kron(D, D) vec(P)
-_K = np.kron(_D, _D)
-_KT = np.ascontiguousarray(_K.T)
-
-
 def _dct2(p):
+    K, KT = _block_mats(BLK)
     sh = p.shape[:-2]
-    return (p.reshape(-1, 64) @ _KT).reshape(sh + (8, 8))
-
-
-def _idct2(c):
-    sh = c.shape[:-2]
-    return (c.reshape(-1, 64) @ _K).reshape(sh + (8, 8))
+    return (p.reshape(-1, BLK * BLK) @ KT).reshape(sh + (BLK, BLK))
 
 
 def _estimate_sigma(a):
@@ -133,14 +124,35 @@ def _estimate_sigma(a):
     return float(np.median(np.abs(c[..., 4:, 4:]).ravel()) / 0.6745)
 
 
-def denoise(img, sigma=None, k0=3.0, stability=0, spins=4):
-    """降噪。
+def _denoise_one_block_size(a, sigma, B, phases, k0):
+    """BxB 分块 + `phases` 个滑动偏移（每轴）的 3σ 硬阈值平均。"""
+    K, KT = _block_mats(B)
+    h, w = a.shape
+    n = int(max(1, round(np.sqrt(phases))))
+    offs = sorted({int(round(i * B / n)) % B for i in range(n)})
+    acc = np.zeros((h, w), dtype=np.float64)
+    for sy in offs:
+        for sx in offs:
+            p = np.pad(a, ((sy, sy + B), (sx, sx + B)), mode="symmetric")
+            ny, nx = p.shape[0] // B, p.shape[1] // B
+            blk = (p[:ny * B, :nx * B].reshape(ny, B, nx, B).transpose(0, 2, 1, 3)
+                   .reshape(-1, B * B).astype(np.float64))
+            C = (blk @ KT).reshape(ny, nx, B, B)
+            g = (np.abs(C) > k0 * sigma).astype(np.float64)
+            g[..., 0, 0] = 1.0
+            rec = ((g * C).reshape(-1, B * B) @ K).reshape(ny, nx, B, B)
+            rec = rec.transpose(0, 2, 1, 3).reshape(ny * B, nx * B)
+            full = np.zeros(p.shape, dtype=np.float64)
+            full[:rec.shape[0], :rec.shape[1]] = rec
+            acc += full[sy:sy + h, sx:sx + w]
+    return acc / float(len(offs) * len(offs))
 
-    img       : HxW 或 HxWxC，uint8 或 [0,1] float
-    sigma     : 噪声 std（[0,1]）；None 时自动估计
-    k0        : 阈值倍数（3.0 = 经典 3σ）
-    stability : 0 = 纯主干（默认）；"quant" = 量化稳定度层
-    spins     : 4 = 16 相位；1 = 单网格
+
+def denoise(img, sigma=None, k0=3.0, stability=0, blocks=(4, 8, 16), phases=None):
+    """NPSS-Image：多尺度分块（默认 4/8/16）+ 滑动相位平均 + 3σ 硬阈值。
+
+    blocks : 参与融合的方块尺寸，可用任意组合，如 (8,) / (4,8) / (4,8,16)
+    phases : 每种尺寸每轴的偏移数；默认 4x4 全覆盖(16)、其余 16
     """
     a = to_float(img)
     single = a.ndim == 2
@@ -156,41 +168,17 @@ def denoise(img, sigma=None, k0=3.0, stability=0, spins=4):
         sig_c = [max(float(sigma), 1e-4)] * ch
     sigma = max(float(sigma), 1e-4)
 
-    if spins >= 8:
-        shifts = [(y, x) for y in range(0, BLK) for x in range(0, BLK)]
-    elif spins >= 4:
-        shifts = [(y, x) for y in range(0, BLK, 2) for x in range(0, BLK, 2)]
-    elif spins >= 2:
-        shifts = [(0, 0), (0, BLK // 2), (BLK // 2, 0), (BLK // 2, BLK // 2)]
-    else:
-        shifts = [(0, 0)]
-
-    smap = None
-    if stability == "quant":
-        sq = quant_stability(luma(a), sigma)
-        lo, hi = np.percentile(sq, 20), np.percentile(sq, 80)
-        smap = np.clip((sq - lo) / (hi - lo + 1e-8), 0.0, 1.0)
+    blocks = tuple(int(b) for b in (blocks or (BLK,)) if int(b) >= 2)
+    if phases is None:
+        phases = {b: (16 if b <= 4 else 16) for b in blocks}
 
     acc = np.zeros((h, w, ch), dtype=np.float64)
-    for sy, sx in shifts:
-        p = np.pad(a, ((sy, sy + BLK), (sx, sx + BLK), (0, 0)), mode="symmetric")
-        ph, pw = p.shape[:2]
-        ny, nx = ph // BLK, pw // BLK
-        if smap is not None:
-            sp = np.pad(smap, ((sy, sy + BLK), (sx, sx + BLK)), mode="symmetric")
-            sb = sp[:ny * BLK, :nx * BLK].reshape(ny, BLK, nx, BLK).mean(axis=(1, 3))
-            kmap = np.clip(k0 * (1.0 + 0.8 * (0.6 - sb)), 0.6 * k0, 1.7 * k0) * sigma
-        else:
-            kmap = np.full((ny, nx), k0 * sigma)
-        for c in range(ch):
-            sc = sig_c[c]
-            c2 = _dct2(_split_blocks(p[..., c].astype(np.float64)))
-            g = (np.abs(c2) > (kmap * (sc / sigma))[..., None, None]).astype(np.float64)
-            g[..., 0, 0] = 1.0
-            acc[..., c] += _merge_blocks(_idct2(g * c2), p.shape[:2])[sy:sy + h, sx:sx + w]
-
-    out = np.clip(acc / float(len(shifts)), 0.0, 1.0).astype(np.float32)
-    return out[..., 0] if single else out
+    for c in range(ch):
+        parts = [_denoise_one_block_size(a[..., c], sig_c[c], B, phases.get(B, 16), k0)
+                 for B in blocks]
+        acc[..., c] = np.mean(np.stack(parts, 0), axis=0)
+    out = np.clip(acc, 0.0, 1.0).astype(np.float32)
+    return (out[..., 0] if single else out), None
 
 
 # ------------------------------------------------------------- 对照与指标
@@ -233,13 +221,14 @@ def _main():
     import os
     from PIL import Image
 
-    ap = argparse.ArgumentParser(description="NPSS-Image: 8x8 DCT 3σ + 16 相位 cycle-spin")
+    ap = argparse.ArgumentParser(description="NPSS-Image: 多尺度分块 DCT 3σ + 滑动相位平均")
     ap.add_argument("input")
     ap.add_argument("output", nargs="?", default=None)
     ap.add_argument("--sigma", type=float, default=25.0, help="噪声 std（0-255）")
     ap.add_argument("--estimate", action="store_true", help="自动估计噪声")
     ap.add_argument("--stability", choices=["off", "quant"], default="off")
-    ap.add_argument("--spins", type=int, default=4)
+    ap.add_argument("--blocks", default="4,8,16",
+                    help="方块尺寸，逗号分隔，如 8 或 4,8,16")
     args = ap.parse_args()
 
     img = to_float(Image.open(args.input).convert("RGB"))
@@ -249,7 +238,8 @@ def _main():
         sig = None
     else:
         sig = args.sigma / 255.0
-    out = denoise(img, sigma=sig, spins=args.spins,
+    blocks = tuple(int(x) for x in str(args.blocks).split(",") if x.strip())
+    out = denoise(img, sigma=sig, blocks=blocks,
                   stability="quant" if args.stability == "quant" else 0)
     dst = args.output or os.path.splitext(args.input)[0] + "_npss.png"
     Image.fromarray(to_uint8(out)).save(dst)

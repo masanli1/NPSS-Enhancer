@@ -342,7 +342,7 @@ class App:
             a = M.to_float(img)
             sig = float(np.median(np.abs(M.luma(a) - M.gaussian_blur(M.luma(a), 1.2))) / 0.6745)
             self.q.put(("log", "噪声 σ ≈ %.1f/255" % (sig * 255)))
-            out = M.denoise(a, sigma=sig)
+            out, _ = M.denoise(a, sigma=sig)
             Image.fromarray(M.to_uint8(out)).save(dst)
             self.q.put(("done", dst))
         except Exception as e:
