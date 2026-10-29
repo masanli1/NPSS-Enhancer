@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.0.6 — 2026-10-29
+
+- **Adaptive frame count for the video-to-still merge.** More frames are not
+  always better: on handheld footage with a moving subject the registration
+  error grows faster than the 1/sqrt(N) noise gain. The merge now measures the
+  inter-frame motion and picks 16/12/8/4/3 frames (static -> many, moving ->
+  few), overridable with `--still-frames`.
+  Same clip: fixed 12 frames 34.14 dB, adaptive 4 frames **34.65 dB**,
+  fixed 30 frames 33.04 dB.
+
 ## 3.0.5 — 2026-10-29
 
 - **Video to still (multi-frame merge).** New `still_merge.py` and

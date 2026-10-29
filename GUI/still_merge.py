@@ -106,9 +106,28 @@ def read_frames(src, t_sec, count, log=print):
     return fr.astype(np.float32) / 255.0, fps
 
 
-def still(src, t_sec=None, count=12, sigma=None, log=print):
-    """从视频融合出一张干净照片，返回 (image float32, info)。"""
+def _auto_count(src, t_sec):
+    """按帧间运动量决定融合帧数：动得越多，用的帧越少。"""
+    raw, _ = read_frames(src, t_sec if t_sec else 1.0, 9)
+    if len(raw) < 3:
+        return 3
+    m = float(np.mean([np.abs(M.luma(raw[i]) - M.luma(raw[i - 1])).mean()
+                       for i in range(1, len(raw))])) * 255
+    for thr, n in ((1.0, 16), (2.0, 12), (4.0, 8), (8.0, 4)):
+        if m < thr:
+            return n
+    return 3
+
+
+def still(src, t_sec=None, count=None, sigma=None, log=print):
+    """从视频融合出一张干净照片，返回 (image float32, info)。
+
+    count=None 时按帧间运动量自动选择（静止镜头多帧，运动镜头少帧）。
+    """
     info = {}
+    if count is None:
+        count = _auto_count(src, t_sec)
+        log("自动选择融合帧数：%d" % count)
     raw, fps = read_frames(src, t_sec if t_sec else 1.0, count, log)
     if t_sec is None:
         # 用中点作为参考帧，避免边缘

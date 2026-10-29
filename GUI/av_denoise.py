@@ -259,11 +259,14 @@ if __name__ == "__main__":
                     help="音轨内容类型（默认 voice）")
     ap.add_argument("--still", type=float, default=None,
                     help="视频取帧：在该时间点(秒)融合连续帧，输出一张图片")
+    ap.add_argument("--still-frames", type=int, default=0,
+                    help="融合帧数（0=按帧间运动自动，3~24）")
     a = ap.parse_args()
     if a.still is not None:
         from PIL import Image
         import still_merge as SM
-        img, info = SM.still(a.input, t_sec=float(a.still), count=12,
+        img, info = SM.still(a.input, t_sec=float(a.still),
+                             count=(a.still_frames or None),
                              sigma=None if a.sigma is None else a.sigma / 255.0,
                              log=lambda m: print(m, flush=True))
         Image.fromarray(IMG.to_uint8(img)).save(a.output)
