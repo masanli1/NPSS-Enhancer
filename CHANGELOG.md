@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.1.2 — 2026-10-30
+
+- **Multi-process trajectory denoising.** The clip is split into overlapping
+  chunks ((span+2r) frames each) that run in a process pool; each worker decodes
+  its own chunk, computes flows and writes its raw output, and the parent
+  concatenates them in order into the encoder. Worker count is capped by
+  resolution because large frames are memory-bandwidth bound.
+  Measured: 640x480 120 frames 33.3 s -> 14.0 s (2.4x);
+  1080p 60 frames 98.7 s -> 53.5 s (1.8x);
+  1440x1920 is capped at 2 workers (~1.1x, bandwidth bound).
+- GPU (MPS) was benchmarked but cannot ship: the bundled Python runtime is
+  code-signed and refuses to load `libtorch` (Team ID mismatch). Numbers are in
+  docs/history for the record.
+
 ## 3.1.1 — 2026-10-29
 
 - **Trajectory video denoising is now streaming.** Frames are decoded, flowed

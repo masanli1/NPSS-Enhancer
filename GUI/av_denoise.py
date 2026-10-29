@@ -279,9 +279,37 @@ if __name__ == "__main__":
                   content=a.content, log=lambda m: print(m, flush=True))
 
 
+def _traj_worker(args):
+    """子进程：解一段、算光流、累积中间帧、写 raw 文件。"""
+    import traj_denoise as T
+    (src, start, count, radius, sigma, outdir, idx, H, W, fps, total) = args
+    ff = _ffmpeg()
+    cmd = [ff, "-hide_banner", "-loglevel", "error", "-ss", "%.4f" % (start / fps),
+           "-i", src, "-frames:v", str(int(count)), "-f", "rawvideo",
+           "-pix_fmt", "rgb24", "-"]
+    raw = subprocess.run(cmd, capture_output=True).stdout
+    n = len(raw) // (H * W * 3)
+    if n < 2:
+        return idx, None, 0
+    keep = min(n, total - start)
+    frames = [np.frombuffer(raw[i * H * W * 3:(i + 1) * H * W * 3], np.uint8)
+              .reshape(H, W, 3).astype(np.float32) / 255.0 for i in range(keep)]
+    flows = [T.bm_flow(frames[k], frames[k + 1]) for k in range(len(frames) - 1)]
+    lo = 0 if start == 0 else radius
+    hi = len(frames) if start + count >= total else len(frames) - radius
+    path = os.path.join(outdir, "c%05d.raw" % idx)
+    cnt = 0
+    with open(path, "wb") as fh:
+        for i in range(lo, hi):
+            o = T.accumulate_weighted(frames, flows, i, radius, sigma)
+            fh.write((np.clip(o, 0, 1) * 255 + 0.5).astype(np.uint8).tobytes())
+            cnt += 1
+    return idx, path, cnt
+
+
 def denoise_video_traj(src, dst, sigma=None, audio_target=None, radius=3,
                        content="voice", fast=False, max_frames=None,
-                       crf=18, log=print):
+                       crf=18, log=print, workers=None):
     """沿轨迹累积的视频降噪（流式分块，内存只保留 2r+1 帧）。
 
     解码 → 逐帧算光流 → 环形缓冲 → 输出 i-radius 帧 → 编码。
@@ -321,6 +349,61 @@ def denoise_video_traj(src, dst, sigma=None, audio_target=None, radius=3,
          "-r", "%.3f" % fps, "-i", "-", "-c:v", "libx264", "-crf", str(crf),
          "-pix_fmt", "yuv420p", silent],
         stdin=subprocess.PIPE)
+
+    # ---- 多进程：按段并行（每段带 radius 重叠），按时序拼接 ----
+    if workers is None:
+        workers = max(1, min(8, os.cpu_count() or 4))
+    # 按分辨率限流：大帧的内存带宽是瓶颈，进程多了反而慢（实测）
+    px = W * H
+    cap = 8 if px <= 500_000 else (4 if px <= 2_500_000 else 2)
+    if workers > cap:
+        log("按分辨率限流：进程数 %d -> %d（%.1f MP）" % (workers, cap, px / 1e6))
+        workers = cap
+    total = int(round((info.get("duration") or 0) * fps))
+    if max_frames:
+        total = min(total, int(max_frames))
+    if workers > 1 and total > 4 * radius + 8:
+        from concurrent.futures import ProcessPoolExecutor
+        span = max(8, int(np.ceil(total / float(workers))))
+        chunk = span + 2 * radius
+        starts = list(range(0, total, span))
+        jobs = []
+        for k, st_ in enumerate(starts):
+            cnt = min(chunk, total - st_ + radius)
+            jobs.append((src, st_, cnt, radius, sigma, tmp, k, H, W, fps, total))
+        log("多进程：%d 段 × %d 帧，%d 进程" % (len(jobs), chunk, workers))
+        results = {}
+        with ProcessPoolExecutor(max_workers=workers) as ex:
+            for idx, path, cnt in ex.map(_traj_worker, jobs):
+                results[idx] = (path, cnt)
+        written = 0
+        for k in sorted(results):
+            path, cnt = results[k]
+            if not path:
+                continue
+            with open(path, "rb") as fh:
+                while True:
+                    blk = fh.read(nbytes)
+                    if len(blk) < nbytes:
+                        break
+                    enc.stdin.write(blk)
+                    written += 1
+            os.remove(path)
+        enc.stdin.close()
+        enc.wait()
+        src_wav = os.path.join(tmp, "a.wav")
+        if _extract_audio(src, src_wav):
+            out_wav = os.path.join(tmp, "a_out.wav")
+            _denoise_audio(src_wav, out_wav, audio_target, fast, content, log)
+            mux = [ff, "-y", "-hide_banner", "-loglevel", "error", "-i", silent,
+                   "-i", out_wav, "-map", "0:v:0", "-map", "1:a:0",
+                   "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", dst]
+        else:
+            mux = [ff, "-y", "-hide_banner", "-loglevel", "error", "-i", silent,
+                   "-c:v", "copy", dst]
+        subprocess.run(mux, check=False)
+        log("输出 %s（%d 帧）" % (dst, written))
+        return dst
 
     dec = subprocess.Popen(decode_cmd(max_frames), stdout=subprocess.PIPE)
     buf_f = deque(maxlen=2 * radius + 1)
