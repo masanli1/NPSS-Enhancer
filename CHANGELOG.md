@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.1.3 — 2026-10-30
+
+- **New interface.** The single crowded row of controls is gone; the window is
+  now split into 文件 / 模式 / 参数 sections with a 4-column parameter grid, small
+  fixed-width fields instead of stretched ones, and a larger log area. Title
+  block, button row and progress line are separated.
+
 ## 3.1.2 — 2026-10-30
 
 - **Multi-process trajectory denoising.** The clip is split into overlapping

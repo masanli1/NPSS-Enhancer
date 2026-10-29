@@ -41,26 +41,29 @@ class App:
         self._plot_img = None
         self._last_plot_path = None
         self._spec_lut = None
-        root.title("NPSS 降噪 v3.0 — 音频 / 视频 / 图片 一体化")
-        root.geometry("900x790")
-        root.minsize(760, 620)
+        root.title("NPSS 降噪 v3.1")
+        root.geometry("1000x880")
+        root.minsize(900, 720)
 
         style = ttk.Style()
         try:
             style.configure("TButton", font=FONT)
             style.configure("TLabel", font=FONT)
             style.configure("TRadiobutton", font=FONT)
+            style.configure("TCheckbutton", font=FONT)
             style.configure("TCombobox", font=FONT)
+            style.configure("Section.TLabelframe.Label", font=(FONT[0], FONT[1], "bold"))
         except Exception:
             pass
 
-        main = ttk.Frame(root, padding=14)
+        main = ttk.Frame(root, padding=(18, 14))
         main.pack(fill="both", expand=True)
-        main.columnconfigure(1, weight=1)
+        main.columnconfigure(0, weight=1)
 
-        ttk.Label(main, text="NPSS 降噪 v3.0 — 音频 / 视频 / 图片 一体化",
-                  font=("PingFang SC", 16, "bold")).grid(
-            row=0, column=0, columnspan=4, sticky="w", pady=(0, 12))
+        ttk.Label(main, text="NPSS 降噪", font=("PingFang SC", 20, "bold")).grid(
+            row=0, column=0, sticky="w")
+        ttk.Label(main, text="音频 · 视频 · 图片 一体化降噪", font=SMALL,
+                  foreground="#666666").grid(row=1, column=0, sticky="w", pady=(0, 12))
 
         self.in_var = tk.StringVar()
         self.out_var = tk.StringVar()
@@ -83,101 +86,106 @@ class App:
         self.profile_var = tk.StringVar(value="频率优先（PESQ/STOI）")
         self.frames_var = tk.BooleanVar(value=True)
 
-        ttk.Label(main, text="输入").grid(row=1, column=0, sticky="w", pady=4)
-        ttk.Entry(main, textvariable=self.in_var).grid(
-            row=1, column=1, columnspan=2, sticky="ew", padx=6)
-        ttk.Button(main, text="浏览…", command=self.browse_input).grid(
-            row=1, column=3, sticky="ew")
+        # ---------------- 文件 ----------------
+        files = ttk.LabelFrame(main, text=" 文件 ", padding=(12, 8), style="Section.TLabelframe")
+        files.grid(row=2, column=0, sticky="ew", pady=(0, 10))
+        files.columnconfigure(1, weight=1)
+        ttk.Label(files, text="输入").grid(row=0, column=0, sticky="w", pady=3)
+        ttk.Entry(files, textvariable=self.in_var).grid(
+            row=0, column=1, sticky="ew", padx=8)
+        ttk.Button(files, text="浏览…", command=self.browse_input, width=8).grid(
+            row=0, column=2, sticky="e")
+        ttk.Label(files, text="输出").grid(row=1, column=0, sticky="w", pady=3)
+        ttk.Entry(files, textvariable=self.out_var).grid(
+            row=1, column=1, sticky="ew", padx=8)
+        ttk.Button(files, text="另存…", command=self.browse_output, width=8).grid(
+            row=1, column=2, sticky="e")
 
-        ttk.Label(main, text="输出").grid(row=2, column=0, sticky="w", pady=4)
-        ttk.Entry(main, textvariable=self.out_var).grid(
-            row=2, column=1, columnspan=2, sticky="ew", padx=6)
-        ttk.Button(main, text="另存…", command=self.browse_output).grid(
-            row=2, column=3, sticky="ew")
-
-        mode = ttk.Frame(main)
-        mode.grid(row=3, column=0, columnspan=4, sticky="w", pady=(8, 2))
-        ttk.Label(mode, text="模式").pack(side="left", padx=(0, 8))
+        # ---------------- 模式 ----------------
+        modebox = ttk.LabelFrame(main, text=" 模式 ", padding=(12, 8), style="Section.TLabelframe")
+        modebox.grid(row=3, column=0, sticky="ew", pady=(0, 10))
+        row1 = ttk.Frame(modebox)
+        row1.pack(fill="x")
         for text, val in [("自动", "auto"), ("音频 WAV", "audio"),
                           ("视频 MP4", "video"), ("图片 PNG", "image")]:
-            ttk.Radiobutton(mode, text=text, value=val,
-                            variable=self.mode_var,
-                            command=self.on_mode).pack(side="left", padx=4)
-        ttk.Checkbutton(mode, text="视频画面也降噪", variable=self.frames_var).pack(
-            side="left", padx=(14, 0))
+            ttk.Radiobutton(row1, text=text, value=val, variable=self.mode_var,
+                            command=self.on_mode).pack(side="left", padx=(0, 16))
+        ttk.Checkbutton(row1, text="视频画面也降噪", variable=self.frames_var).pack(
+            side="left", padx=(16, 0))
 
-        content = ttk.Frame(main)
-        content.grid(row=4, column=0, columnspan=4, sticky="w", pady=(2, 0))
-        ttk.Label(content, text="内容").pack(side="left", padx=(0, 8))
-        ttk.Radiobutton(content, text="音乐为主（通用）", value="音乐为主",
+        row2 = ttk.Frame(modebox)
+        row2.pack(fill="x", pady=(8, 0))
+        ttk.Radiobutton(row2, text="音乐为主（通用）", value="音乐为主",
                         variable=self.content_var,
-                        command=self.on_content).pack(side="left", padx=4)
-        ttk.Radiobutton(content, text="声音为主（语音增强）", value="声音为主",
+                        command=self.on_content).pack(side="left", padx=(0, 16))
+        ttk.Radiobutton(row2, text="声音为主（语音增强）", value="声音为主",
                         variable=self.content_var,
-                        command=self.on_content).pack(side="left", padx=4)
-        ttk.Label(content, text="旧循环").pack(side="left", padx=(10, 2))
-        ttk.Spinbox(content, from_=2, to=8, width=3,
-                    textvariable=self.loops_var).pack(side="left")
-        ttk.Checkbutton(content, text="多统计 Gmin（v2.7.0）",
-                        variable=self.multi_var,
-                        command=self.on_content).pack(side="left", padx=(8, 2))
-        ttk.Checkbutton(content, text="快速模式（K6/2-pass）",
-                        variable=self.fast_var).pack(side="left", padx=(4, 2))
-        self.content_hint = ttk.Label(content, text="16k/48k 多统计 + 拓扑 + 角色补全 + 高频柔和；立体声", font=SMALL)
-        self.content_hint.pack(side="left", padx=6)
+                        command=self.on_content).pack(side="left", padx=(0, 16))
+        ttk.Checkbutton(row2, text="多统计 Gmin", variable=self.multi_var,
+                        command=self.on_content).pack(side="left", padx=(0, 16))
+        ttk.Checkbutton(row2, text="快速模式", variable=self.fast_var).pack(side="left")
 
-        opts = ttk.Frame(main)
-        opts.grid(row=5, column=0, columnspan=4, sticky="w", pady=8)
-        ttk.Label(opts, text="噪声类型").pack(side="left")
-        ttk.Combobox(opts, textvariable=self.family_var, width=11,
-                     values=["white", "correlated", "impulsive"],
-                     state="readonly").pack(side="left", padx=(4, 14))
-        ttk.Label(opts, text="passes").pack(side="left")
-        ttk.Spinbox(opts, from_=1, to=5, width=4,
-                    textvariable=self.passes_var).pack(side="left", padx=(4, 14))
-        ttk.Label(opts, text="分块(s)").pack(side="left")
-        ttk.Spinbox(opts, from_=5, to=60, width=5,
-                    textvariable=self.chunk_var).pack(side="left", padx=(4, 14))
-        ttk.Label(opts, text="迭代").pack(side="left")
-        ttk.Spinbox(opts, from_=1, to=4, width=4,
-                    textvariable=self.iter_var).pack(side="left", padx=(4, 14))
-        ttk.Label(opts, text="回注 β").pack(side="left")
-        ttk.Combobox(opts, textvariable=self.inject_var, width=5,
-                     values=["0", "0.05", "0.1", "0.2"],
-                     state="readonly").pack(side="left", padx=(4, 14))
-        ttk.Checkbutton(opts, text="自动高 SNR 保护",
-                        variable=self.auto_var).pack(side="left", padx=(14, 0))
-        ttk.Label(opts, text="四视角 profile").pack(side="left", padx=(14, 2))
-        ttk.Combobox(opts, textvariable=self.profile_var, width=20,
-                     values=["频率优先（PESQ/STOI）", "均衡（频率+结构）", "能量均衡",
-                             "结构优先（SI-SDR）", "关闭（v2.8）"],
-                     state="readonly").pack(side="left", padx=(0, 10))
-        ttk.Label(opts, text="处理采样率").pack(side="left")
-        ttk.Combobox(opts, textvariable=self.proc_var, width=7,
-                     values=["16000", "48000"],
-                     state="readonly").pack(side="left", padx=4)
+        self.content_hint = ttk.Label(modebox, text="", font=SMALL, foreground="#666666")
+        self.content_hint.pack(fill="x", pady=(8, 0))
 
+        # ---------------- 参数 ----------------
+        opts = ttk.LabelFrame(main, text=" 参数 ", padding=(12, 8), style="Section.TLabelframe")
+        opts.grid(row=4, column=0, sticky="ew", pady=(0, 10))
+
+        def field(parent, r, c, label, widget):
+            ttk.Label(parent, text=label).grid(row=r, column=c * 2, sticky="e",
+                                               padx=(0, 6), pady=4)
+            widget.grid(row=r, column=c * 2 + 1, sticky="w", padx=(0, 22), pady=4)
+
+        field(opts, 0, 0, "噪声类型",
+              ttk.Combobox(opts, textvariable=self.family_var, width=11,
+                           values=["white", "correlated", "impulsive"], state="readonly"))
+        field(opts, 0, 1, "passes",
+              ttk.Spinbox(opts, from_=1, to=5, width=5, textvariable=self.passes_var))
+        field(opts, 0, 2, "分块 (s)",
+              ttk.Spinbox(opts, from_=5, to=60, width=5, textvariable=self.chunk_var))
+        field(opts, 0, 3, "迭代",
+              ttk.Spinbox(opts, from_=1, to=4, width=5, textvariable=self.iter_var))
+
+        field(opts, 1, 0, "回注 β",
+              ttk.Combobox(opts, textvariable=self.inject_var, width=9,
+                           values=["0", "0.05", "0.1", "0.2"], state="readonly"))
+        field(opts, 1, 1, "处理采样率",
+              ttk.Combobox(opts, textvariable=self.proc_var, width=9,
+                           values=["16000", "48000"], state="readonly"))
+        field(opts, 1, 2, "旧循环",
+              ttk.Spinbox(opts, from_=2, to=8, width=5, textvariable=self.loops_var))
+        ttk.Checkbutton(opts, text="自动高 SNR 保护", variable=self.auto_var).grid(
+            row=1, column=6, columnspan=2, sticky="w", padx=(0, 0), pady=4)
+
+        field(opts, 2, 0, "四视角 profile",
+              ttk.Combobox(opts, textvariable=self.profile_var, width=18,
+                           values=["频率优先（PESQ/STOI）", "均衡（频率+结构）", "能量均衡",
+                                   "结构优先（SI-SDR）", "关闭（v2.8）"], state="readonly"))
+
+        # ---------------- 操作 ----------------
         btns = ttk.Frame(main)
-        btns.grid(row=6, column=0, columnspan=4, sticky="w", pady=(6, 8))
-        self.start_btn = ttk.Button(btns, text="开始处理", command=self.start)
+        btns.grid(row=5, column=0, sticky="ew", pady=(0, 8))
+        self.start_btn = ttk.Button(btns, text="开始处理", command=self.start, width=12)
         self.start_btn.pack(side="left")
-        ttk.Button(btns, text="文字转语音", command=self.open_tts).pack(side="left", padx=6)
-        ttk.Button(btns, text="播放原文件", command=lambda: self.play(self.in_var.get())).pack(side="left", padx=6)
-        ttk.Button(btns, text="播放输出", command=lambda: self.play(self.out_var.get())).pack(side="left", padx=6)
-        ttk.Button(btns, text="打开输出目录", command=self.open_folder).pack(side="left", padx=6)
+        for text, cmd in (("文字转语音", self.open_tts),
+                          ("播放原文件", lambda: self.play(self.in_var.get())),
+                          ("播放输出", lambda: self.play(self.out_var.get())),
+                          ("打开输出目录", self.open_folder)):
+            ttk.Button(btns, text=text, command=cmd).pack(side="left", padx=(8, 0))
 
         self.bar = ttk.Progressbar(main, mode="determinate")
-        self.bar.grid(row=7, column=0, columnspan=4, sticky="ew", pady=4)
-        self.status = ttk.Label(main, text="就绪", font=SMALL)
-        self.status.grid(row=8, column=0, columnspan=4, sticky="w")
+        self.bar.grid(row=6, column=0, sticky="ew", pady=(2, 4))
+        self.status = ttk.Label(main, text="就绪", font=SMALL, foreground="#666666")
+        self.status.grid(row=7, column=0, sticky="w")
 
         self.nb = ttk.Notebook(main)
-        self.nb.grid(row=9, column=0, columnspan=4, sticky="nsew", pady=(8, 0))
-        main.rowconfigure(9, weight=1)
+        self.nb.grid(row=8, column=0, sticky="nsew", pady=(8, 0))
+        main.rowconfigure(8, weight=1)
 
         log_tab = ttk.Frame(self.nb)
         self.nb.add(log_tab, text="日志")
-        self.log = ScrolledText(log_tab, height=13, font=("Menlo", 11))
+        self.log = ScrolledText(log_tab, height=12, font=("Menlo", 11))
         self.log.pack(fill="both", expand=True)
 
         self.plot_tab = ttk.Frame(self.nb)
