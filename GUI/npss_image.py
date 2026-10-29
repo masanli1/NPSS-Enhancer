@@ -148,11 +148,12 @@ def _denoise_one_block_size(a, sigma, B, phases, k0):
     return acc / float(len(offs) * len(offs))
 
 
-def denoise(img, sigma=None, k0=3.0, stability=0, blocks=(4, 8, 16), phases=None):
+def denoise(img, sigma=None, k0=3.0, stability=0, blocks=(8,), phases="full"):
     """NPSS-Image：多尺度分块（默认 4/8/16）+ 滑动相位平均 + 3σ 硬阈值。
 
-    blocks : 参与融合的方块尺寸，可用任意组合，如 (8,) / (4,8) / (4,8,16)
-    phases : 每种尺寸每轴的偏移数；默认 4x4 全覆盖(16)、其余 16
+    blocks : 方块尺寸，任意组合，如 (8,) / (4,8) / (4,8,16)
+    phases : "full" = 每个整数偏移都滑（8x8 -> 64 个，边界最干净，默认）；
+             也可给整数或 {B: n} 自行控制（16 = 每轴 4 个偏移）
     """
     a = to_float(img)
     single = a.ndim == 2
@@ -169,8 +170,13 @@ def denoise(img, sigma=None, k0=3.0, stability=0, blocks=(4, 8, 16), phases=None
     sigma = max(float(sigma), 1e-4)
 
     blocks = tuple(int(b) for b in (blocks or (BLK,)) if int(b) >= 2)
-    if phases is None:
-        phases = {b: (16 if b <= 4 else 16) for b in blocks}
+    if phases == "full":
+        # 每个整数偏移都滑一遍（16x16 以上封顶 64，避免 256 相位的成本）
+        phases = {b: min(b * b, 64) for b in blocks}
+    elif phases is None:
+        phases = {b: 16 for b in blocks}
+    elif isinstance(phases, (int, float)):
+        phases = {b: int(phases) for b in blocks}
 
     acc = np.zeros((h, w, ch), dtype=np.float64)
     for c in range(ch):
@@ -229,6 +235,8 @@ def _main():
     ap.add_argument("--stability", choices=["off", "quant"], default="off")
     ap.add_argument("--blocks", default="4,8,16",
                     help="方块尺寸，逗号分隔，如 8 或 4,8,16")
+    ap.add_argument("--fast", action="store_true",
+                    help="只滑 16 个相位（快，边界略有残留）")
     args = ap.parse_args()
 
     img = to_float(Image.open(args.input).convert("RGB"))
@@ -240,6 +248,7 @@ def _main():
         sig = args.sigma / 255.0
     blocks = tuple(int(x) for x in str(args.blocks).split(",") if x.strip())
     out = denoise(img, sigma=sig, blocks=blocks,
+                  phases=16 if args.fast else "full",
                   stability="quant" if args.stability == "quant" else 0)
     dst = args.output or os.path.splitext(args.input)[0] + "_npss.png"
     Image.fromarray(to_uint8(out)).save(dst)

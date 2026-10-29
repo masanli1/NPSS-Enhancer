@@ -89,19 +89,19 @@ def _denoise_audio(src_wav, dst_wav, target_db=None, fast=False, content="voice"
 
 def _denoise_chunk(args):
     """Worker: 解码后的若干帧（uint8 bytes）-> 降噪后的 bytes。"""
-    bufs, H, W, sigma, blocks = args
+    bufs, H, W, sigma, blocks, phases = args
     import numpy as np
     import npss_image as M
     out = []
     for b in bufs:
         f = np.frombuffer(b, np.uint8).reshape(H, W, 3).astype(np.float32) / 255.0
-        y, _ = M.denoise(f, sigma=sigma, blocks=blocks)
+        y, _ = M.denoise(f, sigma=sigma, blocks=blocks, phases=phases)
         out.append((np.clip(y, 0, 1) * 255 + 0.5).astype(np.uint8).tobytes())
     return out
 
 
 def denoise_video(src, dst, sigma=None, audio_target=None, fast=False,
-                  blocks=None, max_frames=None, crf=18, content="voice",
+                  blocks=None, phases=None, max_frames=None, crf=18, content="voice",
                   workers=None, chunk=8, log=print):
     """同时降画面与声音。
 
@@ -116,7 +116,9 @@ def denoise_video(src, dst, sigma=None, audio_target=None, fast=False,
     if not W or not H:
         raise RuntimeError("无法解析视频尺寸: %s" % src)
     if blocks is None:
-        blocks = (8,) if fast else (4, 8, 16)
+        blocks = (8,)
+    if phases is None:
+        phases = 16        # 视频默认 16 相位：全滑动的 64 相位对长片太慢
     log("输入 %dx%d @ %.2f fps  音频=%s" % (W, H, fps, info["has_audio"]))
 
     tmp = tempfile.mkdtemp(prefix="npss_av_")
@@ -184,13 +186,13 @@ def denoise_video(src, dst, sigma=None, audio_target=None, fast=False,
         if not bufs:
             break
         if pool is None:
-            for b in _denoise_chunk((bufs, H, W, sig, blocks)):
+            for b in _denoise_chunk((bufs, H, W, sig, blocks, phases)):
                 enc.stdin.write(b)
                 done_frames += 1
             if done_frames % 24 == 0:
                 log("  已处理 %d 帧" % done_frames)
         else:
-            pending.append(pool.submit(_denoise_chunk, (bufs, H, W, sig, blocks)))
+            pending.append(pool.submit(_denoise_chunk, (bufs, H, W, sig, blocks, phases)))
             flush()
         if max_frames and n >= max_frames:
             break
@@ -226,13 +228,14 @@ if __name__ == "__main__":
     ap.add_argument("--audio-target", type=float, default=None, help="音频目标降噪 dB")
     ap.add_argument("--fast", action="store_true")
     ap.add_argument("--quality", action="store_true",
-                    help="画面用 4/8/16 多尺度融合（慢约 3 倍）")
+                    help="画面用 4/8/16 多尺度融合（最慢，画质最高）")
     ap.add_argument("--spins", type=int, default=None)
     ap.add_argument("--max-frames", type=int, default=None)
     ap.add_argument("--content", choices=["voice", "music"], default="voice",
                     help="音轨内容类型（默认 voice）")
     a = ap.parse_args()
     denoise_video(a.input, a.output, sigma=a.sigma, audio_target=a.audio_target,
-                  fast=a.fast, blocks=None if not a.quality else (4, 8, 16),
+                  fast=a.fast, blocks=(4, 8, 16) if a.quality else None,
+                  phases=16 if a.fast else "full",
                   max_frames=a.max_frames,
                   content=a.content, log=lambda m: print(m, flush=True))

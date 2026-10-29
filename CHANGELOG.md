@@ -1,5 +1,16 @@
 # Changelog
 
+## 3.0.3 — 2026-10-29
+
+- **Full sliding, no fixed block grid.** The default image path now slides the
+  8x8 window over *every* integer offset (64 phases) instead of 16, which
+  removes the residual block boundaries: the boundary/interior contrast ratio
+  drops from 1.29/1.17 to 1.03/0.94 (1.0 = no seam), PSNR 32.29 -> 32.63 dB.
+- `--fast` keeps the 16-phase version; `--quality` fuses 4/8/16 with full
+  sliding (32.69 dB, ~3x slower).
+- Video keeps 16 phases by default (64 phases per frame is too slow for long
+  clips); `--quality` enables full sliding plus multi-scale fusion.
+
 ## 3.0.2 — 2026-10-29
 
 - **Arbitrary block partitions.** The image filter no longer assumes a fixed
