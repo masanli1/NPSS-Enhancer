@@ -1,5 +1,17 @@
 # Changelog
 
+## 3.0.5 — 2026-10-29
+
+- **Video to still (multi-frame merge).** New `still_merge.py` and
+  `--still SECONDS`: decode 12 consecutive frames, register them with a
+  tile-based affine fit, merge with residual weights, and blend back to the
+  single-frame result wherever the frames disagree (moving subjects), then
+  write one image.
+  Measured on a clip with synthetic noise (sigma=15): single-frame denoise
+  31.53 dB -> merged still **34.14 dB** (+2.6 dB), SSIM 0.893 -> 0.952.
+- GUI: selecting "图片 PNG" with a video input now runs the merge instead of
+  failing, so the app can turn a clip into one clean photo.
+
 ## 3.0.4 — 2026-10-29
 
 - **Automatic phase density for video.** The pipeline now estimates the frame

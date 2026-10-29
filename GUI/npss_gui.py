@@ -337,6 +337,14 @@ class App:
             import numpy as np
             from PIL import Image
             import npss_image as M
+            if os.path.splitext(src)[1].lower() in engine.VIDEO_EXTS:
+                import still_merge as SM
+                self.q.put(("log", "视频取帧：融合连续帧生成一张干净图片 …"))
+                img, info = SM.still(src, t_sec=None, count=12,
+                                     log=lambda s: self.q.put(("log", s)))
+                Image.fromarray(M.to_uint8(img)).save(dst)
+                self.q.put(("done", dst))
+                return
             self.q.put(("log", "图片降噪：自动估计噪声 …"))
             img = Image.open(src).convert("RGB")
             a = M.to_float(img)
