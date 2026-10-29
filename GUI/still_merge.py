@@ -91,10 +91,21 @@ def read_frames(src, t_sec, count, log=print):
     ff = _ffmpeg()
     r = subprocess.run([ff, "-hide_banner", "-i", src], capture_output=True, text=True)
     import re
-    m = re.search(r"(\d{2,5})x(\d{2,5})", r.stderr)
-    if not m:
-        raise RuntimeError("无法解析视频尺寸")
-    W, H = int(m.group(1)), int(m.group(2))
+    # 用一帧 PNG 的实际尺寸（ffmpeg 会自动应用旋转，编码尺寸可能不同）
+    W = H = None
+    try:
+        png = subprocess.run([ff, "-hide_banner", "-loglevel", "error", "-ss", "%.3f" % (t_sec or 0.0),
+                              "-i", src, "-frames:v", "1", "-f", "image2pipe", "-vcodec", "png", "-"],
+                             capture_output=True).stdout
+        if png[:8] == b"\x89PNG\r\n\x1a\n":
+            W = int.from_bytes(png[16:20], "big"); H = int.from_bytes(png[20:24], "big")
+    except Exception:
+        pass
+    if not W or not H:
+        m = re.search(r"(\d{2,5})x(\d{2,5})", r.stderr)
+        if not m:
+            raise RuntimeError("无法解析视频尺寸")
+        W, H = int(m.group(1)), int(m.group(2))
     m = re.search(r"(\d+(?:\.\d+)?)\s+fps", r.stderr)
     fps = float(m.group(1)) if m else 25.0
     start = max(0.0, t_sec - (count // 2) / fps)

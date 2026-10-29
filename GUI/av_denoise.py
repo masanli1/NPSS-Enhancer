@@ -277,3 +277,69 @@ if __name__ == "__main__":
                   phases=("full" if a.quality else (16 if a.fast else None)),
                   max_frames=a.max_frames,
                   content=a.content, log=lambda m: print(m, flush=True))
+
+
+def denoise_video_traj(src, dst, sigma=None, audio_target=None, radius=3,
+                       content="voice", fast=False, max_frames=None,
+                       crf=18, log=print, chunk=16):
+    """沿轨迹累积的视频降噪（连贯性繁衍），不做前景/背景分割。"""
+    import traj_denoise as T
+    info = probe(src)
+    W, H = info["width"], info["height"]
+    fps = info["fps"] or 25.0
+    ff = _ffmpeg()
+
+    # 解出全部帧（受 max_frames 限制）
+    cmd = [ff, "-hide_banner", "-loglevel", "error", "-i", src,
+           "-f", "rawvideo", "-pix_fmt", "rgb24"]
+    if max_frames:
+        cmd += ["-frames:v", str(int(max_frames))]
+    cmd += ["-"]
+    raw = subprocess.run(cmd, capture_output=True).stdout
+    n = len(raw) // (H * W * 3)
+    if n < 2:
+        raise RuntimeError("帧数不足")
+    frames = [np.frombuffer(raw[i * H * W * 3:(i + 1) * H * W * 3], np.uint8)
+              .reshape(H, W, 3).astype(np.float32) / 255.0 for i in range(n)]
+    if sigma is None:
+        tstd = np.stack([frames[i].std(0).mean(-1) for i in range(min(n, 8))])
+        sigma = max(0.02, float(np.percentile(tstd, 10)))
+    log("轨迹累积：%d 帧，±%d 邻域，σ≈%.1f/255" % (n, radius, sigma * 255))
+
+    flows = [T.bm_flow(frames[k], frames[k + 1]) for k in range(n - 1)]
+    log("  光流完成（%d 对）" % len(flows))
+    out_frames = []
+    for i in range(n):
+        lo, hi = max(0, i - radius), min(n, i + radius + 1)
+        sub = frames[lo:hi]
+        sub_flows = flows[lo:hi - 1]
+        out_frames.append(T.accumulate_weighted(sub, sub_flows, i - lo, radius, sigma))
+        if (i + 1) % 20 == 0:
+            log("  已处理 %d/%d 帧" % (i + 1, n))
+
+    tmp = tempfile.mkdtemp(prefix="npss_traj_")
+    silent = os.path.join(tmp, "v.mp4")
+    enc = [ff, "-y", "-hide_banner", "-loglevel", "error",
+           "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", "%dx%d" % (W, H),
+           "-r", "%.3f" % fps, "-i", "-", "-c:v", "libx264", "-crf", str(crf),
+           "-pix_fmt", "yuv420p", silent]
+    p = subprocess.Popen(enc, stdin=subprocess.PIPE)
+    for f in out_frames:
+        p.stdin.write((np.clip(f, 0, 1) * 255 + 0.5).astype(np.uint8).tobytes())
+    p.stdin.close()
+    p.wait()
+
+    src_wav = os.path.join(tmp, "a.wav")
+    have_audio = _extract_audio(src, src_wav)
+    if have_audio:
+        out_wav = os.path.join(tmp, "a_out.wav")
+        _denoise_audio(src_wav, out_wav, audio_target, fast, content, log)
+        mux = [ff, "-y", "-hide_banner", "-loglevel", "error", "-i", silent,
+               "-i", out_wav, "-map", "0:v:0", "-map", "1:a:0",
+               "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", dst]
+    else:
+        mux = [ff, "-y", "-hide_banner", "-loglevel", "error", "-i", silent,
+               "-c:v", "copy", dst]
+    subprocess.run(mux, check=False)
+    log("输出 %s（%d 帧）" % (dst, len(out_frames)))
+    return dst

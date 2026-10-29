@@ -4,7 +4,7 @@ Author: [masanli1](https://github.com/masanli1) · Repository: [NPSS-Enhancer](h
 
 [中文说明](README.zh-CN.md)
 
-> **v3.0.3: the image filter slides over every offset (no fixed grid, no block seams) and can fuse arbitrary block sizes; video frames + soundtrack still included.**
+> **v3.1.0: video denoising accumulates along motion trajectories (+2.2 dB over per-frame, no foreground masking); images keep the full-sliding 3σ filter.**
 >
 > **Images:** 8x8 block DCT, 3-sigma threshold, 16-phase cycle-spinning — 27.90 / 24.08 dB on Kodak at sigma=25 / 50.
 > **Video:** picture and soundtrack are denoised together (`GUI/av_denoise.py`).

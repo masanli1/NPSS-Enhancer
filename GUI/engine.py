@@ -458,20 +458,27 @@ def process_file(src, dst, mode="auto", family="correlated", passes=3,
 
 
 def process_video_av(src, dst, sigma=None, audio_target=None, fast=False,
-                     spins=None, max_frames=None, crf=18, content="voice",
-                     log=None):
+                     radius=3, max_frames=None, crf=18, content="voice",
+                     trajectory=True, log=None):
     """视频一体化降噪：画面 + 声音同时处理。
 
-    画面用 NPSS-Image（8x8 DCT 3σ + cycle-spin），声音用本文件的
-    denoise_array（NPSS 多统计 Gmin）。实现见 ``av_denoise.py``。
+    画面默认走"轨迹累积"（沿运动轨迹对齐多帧再合并，不做前景/背景分割），
+    声音用 denoise_array（NPSS 多统计 Gmin）。实现见 ``av_denoise.py``。
 
     sigma        : 画面噪声 std（0-255 标度）；None = 自动估计
     audio_target : 音频目标降噪 dB（定果寻因）；None = 默认
-    fast         : True 时画面单相位（快约 4 倍）
+    fast         : True 时减小邻域（更快）
+    radius       : 轨迹累积的时间半径（帧）
+    trajectory   : False 时退回逐帧独立降噪
     content      : 音轨类型 "voice" / "music"
     """
     import av_denoise
+    log = log or (lambda m: print(m, flush=True))
+    if trajectory:
+        return av_denoise.denoise_video_traj(
+            src, dst, sigma=sigma, audio_target=audio_target,
+            radius=(2 if fast else radius), max_frames=max_frames,
+            crf=crf, content=content, fast=fast, log=log)
     return av_denoise.denoise_video(
         src, dst, sigma=sigma, audio_target=audio_target, fast=fast,
-        spins=spins, max_frames=max_frames, crf=crf, content=content,
-        log=log or (lambda m: print(m, flush=True)))
+        max_frames=max_frames, crf=crf, content=content, log=log)

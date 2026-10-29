@@ -360,10 +360,17 @@ class App:
         try:
             if mode == "video" and self.frames_var.get():
                 import av_denoise
-                self.q.put(("log", "视频：音轨 + 画面同时降噪"))
-                av_denoise.denoise_video(
-                    src, dst, sigma=None, audio_target=target, fast=fast,
-                    content=content, log=lambda s: self.q.put(("log", s)))
+                self.q.put(("log", "视频：音轨 + 画面同时降噪（轨迹累积）"))
+                try:
+                    av_denoise.denoise_video_traj(
+                        src, dst, sigma=None, audio_target=target, fast=fast,
+                        radius=(2 if fast else 3), content=content,
+                        log=lambda s: self.q.put(("log", s)))
+                except Exception as e:
+                    self.q.put(("log", "轨迹累积失败，退回逐帧降噪：%s" % e))
+                    av_denoise.denoise_video(
+                        src, dst, sigma=None, audio_target=target, fast=fast,
+                        content=content, log=lambda s: self.q.put(("log", s)))
                 self.q.put(("done", dst))
                 return
             engine.process_file(

@@ -1,5 +1,20 @@
 # Changelog
 
+## 3.1.0 — 2026-10-29
+
+- **Video denoising now accumulates along motion trajectories.** New
+  `traj_denoise.py` computes a dense block-matching flow between consecutive
+  frames, warps each neighbour along the trajectory onto the current frame, and
+  merges with residual weights. Nothing is segmented out: the moving subject is
+  accumulated exactly like the static background (this follows the "continuity
+  propagates detail" principle).
+  Measured on a clip with synthetic noise (sigma=15, 640x480, 9 frames):
+  single-frame denoise 33.06 dB -> trajectory accumulation **35.27 dB**
+  (+2.2 dB), with no mask halos. Cost: about 0.7 s/frame at 768x512.
+- `engine.process_video_av` defaults to the trajectory path and falls back to
+  per-frame denoising if it fails; `--fast` halves the radius.
+- Fixed: the GUI video branch still passed the removed `spins` argument.
+
 ## 3.0.6 — 2026-10-29
 
 - **Adaptive frame count for the video-to-still merge.** More frames are not
