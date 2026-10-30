@@ -195,6 +195,32 @@ class App:
         self.plot_path_label = ttk.Label(self.plot_tab, text="", font=SMALL)
         self.plot_path_label.pack(fill="x")
 
+        # ---------------- 音色 ----------------
+        vtab = ttk.Frame(self.nb, padding=12)
+        self.nb.add(vtab, text="音色")
+        vtab.columnconfigure(1, weight=1)
+
+        self.vref_var = tk.StringVar()
+        self.vsrc_var = tk.StringVar()
+        self.vout_var = tk.StringVar()
+
+        for r, (label, var, dlg) in enumerate((
+                ("参考音色", self.vref_var, self._pick_ref),
+                ("源朗读", self.vsrc_var, self._pick_src),
+                ("输出", self.vout_var, self._pick_out))):
+            ttk.Label(vtab, text=label).grid(row=r, column=0, sticky="w", pady=4)
+            ttk.Entry(vtab, textvariable=var).grid(row=r, column=1, sticky="ew", padx=8)
+            ttk.Button(vtab, text="浏览…", width=8, command=dlg).grid(row=r, column=2)
+
+        row = ttk.Frame(vtab)
+        row.grid(row=3, column=0, columnspan=3, sticky="w", pady=(10, 6))
+        ttk.Button(row, text="提取特征", width=10, command=self._analyze_ref).pack(side="left")
+        ttk.Button(row, text="转换", width=10, command=self._do_convert).pack(side="left", padx=8)
+
+        self.vfeat = tk.Text(vtab, height=8, font=("Menlo", 11), wrap="word")
+        self.vfeat.grid(row=4, column=0, columnspan=3, sticky="nsew")
+        vtab.rowconfigure(4, weight=1)
+
         self.on_content()
         ff = engine.find_ffmpeg()
         self.log_line("ffmpeg: " + ff if ff else
@@ -599,6 +625,89 @@ class App:
         draw.text((L + col // 2, H - 12), "time (s)", fill=(40, 40, 40), font=fsmall)
         return img
 
+
+
+    # ---------------- 音色 ----------------
+    def _pick_ref(self):
+        p = filedialog.askopenfilename(title="选择参考音色",
+                                       filetypes=[("音频", "*.wav *.mp3 *.m4a *.flac *.aac *.mp4 *.mov"), ("全部", "*.*")])
+        if p:
+            self.vref_var.set(p)
+
+    def _pick_src(self):
+        p = filedialog.askopenfilename(title="选择要转换的朗读",
+                                       filetypes=[("音频", "*.wav *.mp3 *.m4a *.flac *.aac *.mp4 *.mov"), ("全部", "*.*")])
+        if p:
+            self.vsrc_var.set(p)
+
+    def _pick_out(self):
+        p = filedialog.asksaveasfilename(title="保存为", defaultextension=".wav",
+                                         filetypes=[("WAV", "*.wav")])
+        if p:
+            self.vout_var.set(p)
+
+    def _load_any(self, path):
+        import av_denoise
+        import common as C
+        if os.path.splitext(path)[1].lower() in (".wav", ".flac", ".aiff"):
+            x, sr = C.read_wav(path)
+            return x, sr
+        import subprocess
+        ff = av_denoise._ffmpeg()
+        tmp = tempfile.mktemp(suffix=".wav")
+        subprocess.run([ff, "-y", "-hide_banner", "-loglevel", "error", "-i", path,
+                        "-vn", "-ac", "1", "-ar", "16000", tmp], check=False)
+        x, sr = C.read_wav(tmp)
+        return x, sr
+
+    def _analyze_ref(self):
+        path = self.vref_var.get().strip()
+        if not path:
+            self._vlog("先选一个参考音色文件。")
+            return
+        try:
+            import voice_transform as V
+            x, sr = self._load_any(path)
+            A = V.analyze(x, sr)
+            lines = [
+                "参考音色：%s" % os.path.basename(path),
+                "时长        %.1f s" % A["duration"],
+                "基频 F0     中位 %.0f Hz（%.0f–%.0f）" % (A["f0_median"], A["f0_low"], A["f0_high"]),
+                "共振峰      " + "  ".join("%.0f Hz" % f for f, _ in A["formants"]),
+                "谱质心      %.0f Hz" % A["centroid"],
+                "语速        %.1f 段/秒" % A["rate"],
+                "停顿        %.0f%%" % (100 * A["pause"]),
+            ]
+            self._vlog("\n".join(lines))
+        except Exception as e:
+            self._vlog("分析失败：%s" % e)
+
+    def _do_convert(self):
+        ref, src, out = (self.vref_var.get().strip(), self.vsrc_var.get().strip(),
+                         self.vout_var.get().strip())
+        if not (ref and src and out):
+            self._vlog("参考、源朗读、输出三项都要填。")
+            return
+        def work():
+            try:
+                import voice_transform as V
+                import common as C
+                xr, sr = self._load_any(ref)
+                xs, _ = self._load_any(src)
+                tr = tempfile.mktemp(suffix="_ref.wav")
+                ts = tempfile.mktemp(suffix="_src.wav")
+                C.write_wav(tr, xr, sr)
+                C.write_wav(ts, xs, sr)
+                self._vlog("转换中…")
+                V.convert(tr, ts, out)
+                self._vlog("完成：%s" % out)
+            except Exception as e:
+                self._vlog("转换失败：%s" % e)
+        threading.Thread(target=work, daemon=True).start()
+
+    def _vlog(self, text):
+        self.vfeat.delete("1.0", "end")
+        self.vfeat.insert("1.0", text)
 
     def play(self, path):
         if not path or not os.path.exists(path):

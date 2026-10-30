@@ -1,5 +1,15 @@
 # Changelog
 
+## 3.2.0 — 2026-10-30
+
+- **Voice tab: timbre extraction and conversion, our own code.** `voice_transform.py`
+  analyses a reference voice (cepstral envelope, F0 distribution, formant peaks,
+  speech rate, pauses) and converts a source recording to that timbre:
+  pitch mapped to the reference median (resample + WSOLA so duration is kept),
+  then a smoothed long-term spectral EQ. No model, no training, pure numpy.
+  GUI gained a 音色 tab with 参考音色 / 源朗读 / 输出 and 提取特征 / 转换 buttons.
+- The TTS feature stays removed.
+
 ## 3.1.4 — 2026-10-30
 
 - Removed the TTS entry (button, `open_tts()` and `tts.py`). Voice work is not
