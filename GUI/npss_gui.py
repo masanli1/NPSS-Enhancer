@@ -26,7 +26,6 @@ IMG_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp",
 sys.path.insert(0, HERE)
 import engine
 import common as C
-import tts
 
 FONT = ("PingFang SC", 13)
 SMALL = ("PingFang SC", 11)
@@ -168,8 +167,7 @@ class App:
         btns.grid(row=5, column=0, sticky="ew", pady=(0, 8))
         self.start_btn = ttk.Button(btns, text="开始处理", command=self.start, width=12)
         self.start_btn.pack(side="left")
-        for text, cmd in (("文字转语音", self.open_tts),
-                          ("播放原文件", lambda: self.play(self.in_var.get())),
+        for text, cmd in (("播放原文件", lambda: self.play(self.in_var.get())),
                           ("播放输出", lambda: self.play(self.out_var.get())),
                           ("打开输出目录", self.open_folder)):
             ttk.Button(btns, text=text, command=cmd).pack(side="left", padx=(8, 0))
@@ -601,100 +599,6 @@ class App:
         draw.text((L + col // 2, H - 12), "time (s)", fill=(40, 40, 40), font=fsmall)
         return img
 
-
-    def open_tts(self):
-        win = tk.Toplevel(self.root)
-        win.title("文字转语音（TTS）— NPSS-Enhancer")
-        win.geometry("780x620")
-        win.transient(self.root)
-
-        ttk.Label(win, text="输入文字（中文/英文）").pack(anchor="w", padx=12, pady=(10, 2))
-        text = ScrolledText(win, height=10, font=("PingFang SC", 13), wrap="word")
-        text.pack(fill="both", expand=True, padx=12)
-        text.insert("1.0", "你好，这是 NPSS-Enhancer 的文字转语音测试。")
-
-        row = ttk.Frame(win)
-        row.pack(fill="x", padx=12, pady=8)
-        voices = tts.list_voices()
-        names = [v[0] for v in voices]
-        voice_var = tk.StringVar(value=tts.default_voice(voices))
-        ttk.Label(row, text="声音").pack(side="left")
-        ttk.Combobox(row, textvariable=voice_var, values=names, width=22,
-                     state="readonly").pack(side="left", padx=4)
-        ttk.Label(row, text="语速").pack(side="left", padx=(10, 2))
-        rate_var = tk.StringVar(value="170")
-        ttk.Spinbox(row, from_=80, to=320, width=5,
-                    textvariable=rate_var).pack(side="left")
-
-        out_row = ttk.Frame(win)
-        out_row.pack(fill="x", padx=12, pady=4)
-        out_var = tk.StringVar(value=os.path.join(os.path.expanduser("~/Downloads"), "NPSS_TTS.wav"))
-        ttk.Label(out_row, text="输出").pack(side="left")
-        ttk.Entry(out_row, textvariable=out_var).pack(side="left", fill="x", expand=True, padx=4)
-        def browse():
-            p = filedialog.asksaveasfilename(title="保存语音", defaultextension=".wav",
-                                             filetypes=[("WAV", "*.wav")])
-            if p:
-                out_var.set(p)
-        ttk.Button(out_row, text="另存…", command=browse).pack(side="left")
-
-        info = ttk.Label(win, text="自研共振峰 TTS + pypinyin G2P；不调用系统/第三方 TTS；音质机器人化。",
-                         foreground="#666666")
-        info.pack(anchor="w", padx=12, pady=(2, 4))
-
-        btns = ttk.Frame(win)
-        btns.pack(fill="x", padx=12, pady=8)
-        b1 = ttk.Button(btns, text="生成 WAV")
-        b2 = ttk.Button(btns, text="生成并降噪")
-        b1.pack(side="left")
-        b2.pack(side="left", padx=8)
-        status = ttk.Label(btns, text="就绪")
-        status.pack(side="left", padx=12)
-
-        def do(denoise):
-            txt = text.get("1.0", "end").strip()
-            if not txt:
-                messagebox.showwarning("提示", "请输入文字", parent=win)
-                return
-            out = out_var.get().strip()
-            if not out:
-                messagebox.showwarning("提示", "请选择输出文件", parent=win)
-                return
-            try:
-                rate = int(rate_var.get())
-            except Exception:
-                rate = 170
-            voice = voice_var.get()
-            b1.config(state="disabled")
-            b2.config(state="disabled")
-            status.config(text="生成中…")
-
-            def work():
-                tmp = out + ".tts.wav" if denoise else out
-                try:
-                    tts.synth(txt, voice, rate, tmp, 48000)
-                    if denoise:
-                        status.config(text="生成完成，降噪中…")
-                        engine.process_file(tmp, out, mode="audio", proc_sr=48000,
-                                            out_sr=48000, workers=4, content_mode="voice",
-                                            multi_stat=True)
-                        try:
-                            os.remove(tmp)
-                        except Exception:
-                            pass
-                    status.config(text="完成：" + out)
-                except Exception as e:
-                    status.config(text="失败")
-                    messagebox.showerror("TTS 失败", str(e), parent=win)
-                finally:
-                    b1.config(state="normal")
-                    b2.config(state="normal")
-
-            threading.Thread(target=work, daemon=True).start()
-
-        b1.config(command=lambda: do(False))
-        b2.config(command=lambda: do(True))
-        ttk.Button(btns, text="关闭", command=win.destroy).pack(side="right")
 
     def play(self, path):
         if not path or not os.path.exists(path):

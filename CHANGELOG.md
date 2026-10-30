@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.1.4 — 2026-10-30
+
+- Removed the TTS entry (button, `open_tts()` and `tts.py`). Voice work is not
+  going to be done through the system TTS; the app is back to denoising only.
+
 ## 3.1.3 — 2026-10-30
 
 - **New interface.** The single crowded row of controls is gone; the window is
