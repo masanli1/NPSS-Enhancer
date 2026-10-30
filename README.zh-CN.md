@@ -49,8 +49,8 @@
 G = G_npss × [ floor + (1-floor) × VAD × 谐波梳 ] ^ strength
 ```
 
-42 对 VoiceBank-DEMAND：SI-SDR **13.94**（v2.7 默认 13.67），PESQ 2.345
-（2.351），STOI 0.9203（0.9226）。非人声抑制：纯音乐 −32 dB、白噪 −43 dB、
+42 对 VoiceBank-DEMAND：SI-SDR **13.93**（v2.7 默认 13.67），PESQ 2.337
+（2.351），STOI 0.9207（0.9226）。非人声抑制：纯音乐 −32 dB、白噪 −43 dB、
 traffic −10.4 dB；干净语音单独过一遍 SI-SDR 22.25 dB。
 
 GUI：模式 → 人声提取（只留人声），参数 → 人声强度（默认 0.8）。

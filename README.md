@@ -55,8 +55,8 @@ time-frequency cell look like a human voice". Pure numpy, no model, no training:
 G = G_npss × [ floor + (1-floor) × VAD × harmonic_comb ] ^ strength
 ```
 
-On 42 fixed-stride VoiceBank-DEMAND pairs: SI-SDR **13.94** (v2.7 13.67),
-PESQ 2.345 (2.351), STOI 0.9203 (0.9226). Rejection on 8 s synthetic inputs:
+On 42 fixed-stride VoiceBank-DEMAND pairs: SI-SDR **13.93** (v2.7 13.67),
+PESQ 2.337 (2.351), STOI 0.9207 (0.9226). Rejection on 8 s synthetic inputs:
 music −32 dB, white noise −43 dB, traffic −10.4 dB; clean speech alone keeps
 SI-SDR 22.25 dB / PESQ 3.88.
 

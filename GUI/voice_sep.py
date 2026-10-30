@@ -292,12 +292,14 @@ def analyze(x, sr=SR):
         vad[:] = 0.0
     # Clip-level music guard: a tonal, non-syllabic clip contains no human
     # voice, so the whole clip goes to the floor (BGM-only video/audio).
+    music_guard = False
     vm = voicing > 0.25
     if vm.sum() > 10:
         if (float(np.median(mod[vm])) < 0.10
                 and float(np.median(flat[vm])) < 0.30
                 and float(np.median(harm[vm])) > 0.45):
             vad[:] = 0.0
+            music_guard = True
     vad = _smooth(vad[None, :], 7)[0]
 
     formants = []
@@ -322,7 +324,7 @@ def analyze(x, sr=SR):
 
     return dict(x16=x16, X=X, M=M, freqs=freqs, f0=f0, voicing=voicing, H=H,
                 npow=npow, harm=harm, flat=flat, snr=snr_f,
-                mod=mod, vad=vad, formants=formants,
+                mod=mod, vad=vad, music_guard=music_guard, formants=formants,
                 ltass=ltass, step=step, sr=SR)
 
 
@@ -363,6 +365,16 @@ def voice_gate(F, strength=0.8, floor_db=-40.0, between=0.9, sharp=0.0):
     unvoiced = np.clip(1.0 - v, 0.0, 1.0)
     teeth = between + (1.0 - between) * H
     conf = vad[None, :] * (v[None, :] * teeth + unvoiced[None, :])
+    # 谐波保护：VAD 漏掉但谐波很强的帧不允许被打到地板，
+    # 否则会在字中间打出深洞（SI-SDR 掉 5~6 dB）。纯 BGM 由 music_guard 单独处理。
+    if not F.get("music_guard", False):
+        hm = _smooth(F["harm"][None, :], 5)[0]
+        edb = 10.0 * np.log10((F["M"] ** 2).sum(axis=0) + 1e-12)
+        ref = float(np.percentile(edb, 90))
+        loud = np.clip((edb - (ref - 30.0)) / 10.0, 0.0, 1.0)
+        rescue = (np.clip((hm - 0.22) / 0.15, 0.0, 1.0)
+                  * loud * float(between))
+        conf = np.maximum(conf, rescue[None, :])
     fl = 10.0 ** (float(floor_db) / 20.0)
     G = (fl + (1.0 - fl) * conf) ** float(strength)
     return np.clip(G, 0.0, 1.0).astype(np.float32)
