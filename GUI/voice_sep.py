@@ -408,6 +408,8 @@ def separate(x, sr=SR, strength=0.8, floor_db=-40.0, between=0.9,
     else:
         y16 = C.istft(Gv * F["X"], len(x16), NFFT, HOP)
     y = _to_output(y16.astype(np.float32), sr)
+    # 48k -> 16k -> 48k 的取整会差 1 个样本；输出长度必须和输入严格一致
+    y = _fit(y, len(np.asarray(x, dtype=np.float32).reshape(-1)))
     if info_out is not None:
         v = F["voicing"]
         f0v = F["f0"][v > 0.25]

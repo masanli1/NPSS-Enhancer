@@ -194,6 +194,10 @@ def _process_chunk(args):
     if content_mode == "speech":
         import voice_sep as VS
         y, _F = VS.separate(seg, sr, strength=voice_strength, info_out=info)
+        n = len(seg)
+        if len(y) != n:
+            y = (y[:n] if len(y) > n
+                 else np.pad(y, (0, n - len(y)))).astype(np.float32)
         return y.astype(np.float32), info
     if multi_stat:
         y = MS.denoise_best(seg, sr, voice=(content_mode == "voice"), fast=fast,

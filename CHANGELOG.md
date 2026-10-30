@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.3.1 — 2026-10-30
+
+- **Fix: 48 kHz 人声提取崩溃**（`operands could not be broadcast together with
+  shapes (780327,) (780326,)`）。48k→16k→48k 的重采样取整会让输出少 1 个样本，
+  而 speech 分支提前 return，绕过了分块的长度对齐。
+  `voice_sep.separate` 现在严格保持输入长度，`engine._process_chunk` 再兜底一次；
+  新增 48k 长度回归测试。
+- 3.3.0 的 48k 视频/音频在“人声提取”模式下会直接报错，请用 3.3.1。
+
 ## 3.3.0 — 2026-10-30
 
 - **人声特征提取与分离（新“人声提取”模式）.** `GUI/voice_sep.py`，纯 numpy：

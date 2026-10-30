@@ -42,3 +42,12 @@ def test_voice_features_and_separation():
     assert v.mean() > 0.3
     f0_est = float(np.median(F["f0"][v]))
     assert abs(f0_est - f0) / f0 < 0.1
+
+
+def test_voice_sep_length_48k():
+    """48k -> 16k -> 48k rounding must not lose a sample (v3.3.1 fix)."""
+    import voice_sep as V
+    sr = 48000
+    x = np.random.default_rng(1).normal(0, 0.02, sr * 2 + 1).astype(np.float32)
+    y, _ = V.separate(x, sr, use_base=False)
+    assert len(y) == len(x)
