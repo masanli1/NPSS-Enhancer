@@ -189,8 +189,12 @@ def _process_chunk(args):
     (seg, sr, family, backend, n_fft, hop, passes, theta, support,
      iterations, inject, auto, content_mode, complement, loops, multi_stat,
      fast, target_nr_db, target_dose, target_weights, view_profile,
-     view_beta) = args
+     view_beta, voice_strength) = args
     info = {}
+    if content_mode == "speech":
+        import voice_sep as VS
+        y, _F = VS.separate(seg, sr, strength=voice_strength, info_out=info)
+        return y.astype(np.float32), info
     if multi_stat:
         y = MS.denoise_best(seg, sr, voice=(content_mode == "voice"), fast=fast,
                             target_nr_db=target_nr_db,
@@ -249,7 +253,7 @@ def denoise_array(x, sr, family="correlated", passes=3, wb=2, wc=4,
                   content_mode="music", complement=True, loops=2,
                   multi_stat=True, fast=False, progress=None,
                   target_nr_db=None, info_out=None,
-                  view_profile="freq", view_beta=0.5):
+                  view_profile="freq", view_beta=0.5, voice_strength=0.8):
     """Chunked denoise with process-level parallelism for long files.
 
     ``target_nr_db`` enables 定果寻因: a one-slice calibration solves the dose,
@@ -283,7 +287,7 @@ def denoise_array(x, sr, family="correlated", passes=3, wb=2, wc=4,
     args0 = (x, sr, family, backend, n_fft, hop, passes, theta, support,
              iterations, inject, auto, content_mode, complement, loops, multi_stat,
              fast, target_nr_db, target_dose, target_weights,
-             view_profile, view_beta)
+             view_profile, view_beta, float(voice_strength))
     if n <= chunk:
         y, info = _process_chunk(args0)
         if info_out is not None:
@@ -304,7 +308,7 @@ def denoise_array(x, sr, family="correlated", passes=3, wb=2, wc=4,
                           theta, support, iterations, inject, auto, content_mode,
                           complement, loops, multi_stat, fast,
                           target_nr_db, target_dose, target_weights,
-                          view_profile, view_beta))
+                          view_profile, view_beta, float(voice_strength)))
     if workers <= 0:
         workers = min(os.cpu_count() or 4, len(args_list), 8)
     workers = max(1, min(int(workers), len(args_list), 16))
@@ -358,7 +362,7 @@ def process_file(src, dst, mode="auto", family="correlated", passes=3,
                  content_mode="music", complement=True, loops=2,
                  multi_stat=True, fast=False, progress=None, log=None,
                  target_nr_db=None, info_out=None,
-                 view_profile="freq", view_beta=0.5):
+                 view_profile="freq", view_beta=0.5, voice_strength=0.8):
     """Process an audio or video file. mode: auto/audio/video.
 
     ``target_nr_db`` turns on 定果寻因: instead of fixed thresholds, the 16 kHz
@@ -389,6 +393,7 @@ def process_file(src, dst, mode="auto", family="correlated", passes=3,
                 log("开始降噪：%.1f s，多统计 6 families + single，3-pass/2-loop" % (len(x) / sr))
             else:
                 log("开始降噪：%.1f s，%s，%d 次 pass" % (len(x) / sr, family, passes))
+        vinfo = {} if content_mode == "speech" else info_out
         n_fft = 2048 if proc_sr <= 16000 else 4096
         hop = n_fft // 4
         if np.allclose(x[:, 0], x[:, 1]):
@@ -400,8 +405,9 @@ def process_file(src, dst, mode="auto", family="correlated", passes=3,
                                workers=workers, content_mode=content_mode,
                                complement=complement, loops=loops,
                                multi_stat=multi_stat, progress=progress,
-                               target_nr_db=target_nr_db, info_out=info_out,
-                               view_profile=view_profile, view_beta=view_beta)
+                               target_nr_db=target_nr_db, info_out=vinfo,
+                               view_profile=view_profile, view_beta=view_beta,
+                               voice_strength=voice_strength)
             y = np.repeat(y0[:, None], 2, axis=1).astype(np.float32)
         else:
             def run_ch(ci):
@@ -419,13 +425,26 @@ def process_file(src, dst, mode="auto", family="correlated", passes=3,
                                      multi_stat=multi_stat, fast=fast,
                                      progress=cp,
                                      target_nr_db=target_nr_db,
-                                     info_out=info_out,
+                                     info_out=vinfo,
                                      view_profile=view_profile,
-                                     view_beta=view_beta)
+                                     view_beta=view_beta,
+                                     voice_strength=voice_strength)
             with ThreadPoolExecutor(max_workers=2) as ex:
                 ys = list(ex.map(run_ch, [0, 1]))
             nmin = min(len(ys[0]), len(ys[1]), len(x))
             y = np.stack([ys[0][:nmin], ys[1][:nmin]], axis=1).astype(np.float32)
+        if content_mode == "speech" and log and vinfo.get("f0_median") is not None:
+            log("人声特征：F0 %.0f Hz（%.0f–%.0f），浊音 %.0f%%，语音段 %.0f%%"
+                % (vinfo.get("f0_median", 0.0), vinfo.get("f0_low", 0.0),
+                   vinfo.get("f0_high", 0.0),
+                   100.0 * vinfo.get("voiced_ratio", 0.0),
+                   100.0 * vinfo.get("speech_ratio", 0.0)))
+            fm = vinfo.get("formants") or []
+            ok = [t for t in fm if t and t[0] > 0]
+            if ok:
+                f1 = float(np.median([t[0] for t in ok]))
+                f2 = float(np.median([t[1] for t in ok]))
+                log("共振峰：F1≈%.0f Hz  F2≈%.0f Hz" % (f1, f2))
         C.write_wav_stereo(out16, y, proc_sr)
         if video:
             if proc_sr == 48000:

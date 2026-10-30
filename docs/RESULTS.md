@@ -1,5 +1,9 @@
 # Results
 
+> **v3.3 人声提取**：SI-SDR 13.94 / PESQ 2.345 / STOI 0.9203（42 对固定步长
+> VoiceBank-DEMAND），非人声衰减与边界见 [`VOICE_SEPARATION.md`](VOICE_SEPARATION.md)。
+> 下面 v2.7 的数字保持不变。
+
 All numbers are on 30 held-out VoiceBank-DEMAND pairs, 16 kHz, SI-SDR / PESQ-WB /
 STOI.
 

@@ -79,12 +79,14 @@ def _extract_audio(src, dst):
                    check=True)
 
 
-def _denoise_audio(src_wav, dst_wav, target_db=None, fast=False, content="voice", log=print):
+def _denoise_audio(src_wav, dst_wav, target_db=None, fast=False, content="voice",
+                   log=print, voice_strength=0.8):
     x, sr = C.read_wav_stereo(src_wav)
     chans = []
     for c in range(x.shape[1]):
         y = E.denoise_array(x[:, c], sr, multi_stat=True, fast=fast,
-                            target_nr_db=target_db, content_mode=content)
+                            target_nr_db=target_db, content_mode=content,
+                            voice_strength=voice_strength)
         chans.append(y)
     y = np.stack(chans, axis=1)
     C.write_wav_stereo(dst_wav, y, sr)
@@ -125,7 +127,7 @@ def auto_phases(info, workers, budget=600.0):
 
 def denoise_video(src, dst, sigma=None, audio_target=None, fast=False,
                   blocks=None, phases=None, max_frames=None, crf=18, content="voice",
-                  workers=None, chunk=8, log=print):
+                  workers=None, chunk=8, log=print, voice_strength=0.8):
     """同时降画面与声音。
 
     sigma       : 画面噪声 std（0-255 标度）；None = 自动估计
@@ -152,7 +154,7 @@ def denoise_video(src, dst, sigma=None, audio_target=None, fast=False,
         _extract_audio(src, awav)
         log("音频降噪中 ...")
         _denoise_audio(awav, bwav, target_db=audio_target, fast=fast,
-                       content=content, log=log)
+                       content=content, log=log, voice_strength=voice_strength)
         log("音频完成")
 
     # 解码 -> 逐帧降噪 -> 编码
@@ -255,8 +257,10 @@ if __name__ == "__main__":
                     help="画面用 4/8/16 多尺度融合（最慢，画质最高）")
     ap.add_argument("--spins", type=int, default=None)
     ap.add_argument("--max-frames", type=int, default=None)
-    ap.add_argument("--content", choices=["voice", "music"], default="voice",
-                    help="音轨内容类型（默认 voice）")
+    ap.add_argument("--content", choices=["voice", "music", "speech"], default="voice",
+                    help="音轨内容类型（voice / music / speech=只留人声）")
+    ap.add_argument("--voice-strength", type=float, default=0.8,
+                    help="人声提取强度 0–1（content=speech 时生效）")
     ap.add_argument("--still", type=float, default=None,
                     help="视频取帧：在该时间点(秒)融合连续帧，输出一张图片")
     ap.add_argument("--still-frames", type=int, default=0,
@@ -276,7 +280,8 @@ if __name__ == "__main__":
                   fast=a.fast, blocks=(4, 8, 16) if a.quality else None,
                   phases=("full" if a.quality else (16 if a.fast else None)),
                   max_frames=a.max_frames,
-                  content=a.content, log=lambda m: print(m, flush=True))
+                  content=a.content, voice_strength=a.voice_strength,
+                  log=lambda m: print(m, flush=True))
 
 
 def _traj_worker(args):
@@ -309,7 +314,7 @@ def _traj_worker(args):
 
 def denoise_video_traj(src, dst, sigma=None, audio_target=None, radius=3,
                        content="voice", fast=False, max_frames=None,
-                       crf=18, log=print, workers=None):
+                       crf=18, log=print, workers=None, voice_strength=0.8):
     """沿轨迹累积的视频降噪（流式分块，内存只保留 2r+1 帧）。
 
     解码 → 逐帧算光流 → 环形缓冲 → 输出 i-radius 帧 → 编码。
@@ -394,7 +399,8 @@ def denoise_video_traj(src, dst, sigma=None, audio_target=None, radius=3,
         src_wav = os.path.join(tmp, "a.wav")
         if _extract_audio(src, src_wav):
             out_wav = os.path.join(tmp, "a_out.wav")
-            _denoise_audio(src_wav, out_wav, audio_target, fast, content, log)
+            _denoise_audio(src_wav, out_wav, audio_target, fast, content, log,
+                       voice_strength=voice_strength)
             mux = [ff, "-y", "-hide_banner", "-loglevel", "error", "-i", silent,
                    "-i", out_wav, "-map", "0:v:0", "-map", "1:a:0",
                    "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", dst]
@@ -441,7 +447,8 @@ def denoise_video_traj(src, dst, sigma=None, audio_target=None, radius=3,
     src_wav = os.path.join(tmp, "a.wav")
     if _extract_audio(src, src_wav):
         out_wav = os.path.join(tmp, "a_out.wav")
-        _denoise_audio(src_wav, out_wav, audio_target, fast, content, log)
+        _denoise_audio(src_wav, out_wav, audio_target, fast, content, log,
+                       voice_strength=voice_strength)
         mux = [ff, "-y", "-hide_banner", "-loglevel", "error", "-i", silent,
                "-i", out_wav, "-map", "0:v:0", "-map", "1:a:0",
                "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", dst]

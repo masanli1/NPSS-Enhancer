@@ -77,6 +77,7 @@ class App:
         self.support_var = tk.StringVar(value="0.60")
         self.backend_var = tk.StringVar(value="specsub")
         self.content_var = tk.StringVar(value="音乐为主")
+        self.vstr_var = tk.StringVar(value="0.8")
         self.loops_var = tk.StringVar(value="5")
         self.multi_var = tk.BooleanVar(value=True)
         self.fast_var = tk.BooleanVar(value=True)
@@ -120,6 +121,9 @@ class App:
         ttk.Radiobutton(row2, text="声音为主（语音增强）", value="声音为主",
                         variable=self.content_var,
                         command=self.on_content).pack(side="left", padx=(0, 16))
+        ttk.Radiobutton(row2, text="人声提取（只留人声）", value="人声提取",
+                        variable=self.content_var,
+                        command=self.on_content).pack(side="left", padx=(0, 16))
         ttk.Checkbutton(row2, text="多统计 Gmin", variable=self.multi_var,
                         command=self.on_content).pack(side="left", padx=(0, 16))
         ttk.Checkbutton(row2, text="快速模式", variable=self.fast_var).pack(side="left")
@@ -157,6 +161,9 @@ class App:
         ttk.Checkbutton(opts, text="自动高 SNR 保护", variable=self.auto_var).grid(
             row=1, column=6, columnspan=2, sticky="w", padx=(0, 0), pady=4)
 
+        field(opts, 2, 2, "人声强度",
+              ttk.Spinbox(opts, from_=0.0, to=1.0, increment=0.05, width=5,
+                          textvariable=self.vstr_var))
         field(opts, 2, 0, "四视角 profile",
               ttk.Combobox(opts, textvariable=self.profile_var, width=18,
                            values=["频率优先（PESQ/STOI）", "均衡（频率+结构）", "能量均衡",
@@ -274,7 +281,11 @@ class App:
 
     def on_content(self, event=None):
         multi = bool(self.multi_var.get())
-        if self.content_var.get() == "声音为主":
+        if self.content_var.get() == "人声提取":
+            self.content_hint.config(
+                text="基频 + 谐波梳 + 共振峰 + 音节调制 → 只留人声；"
+                     "停顿时接近静音，音乐/机器/风噪按人声特征压掉")
+        elif self.content_var.get() == "声音为主":
             self.content_hint.config(
                 text="16k/48k 多统计 + 拓扑 + 角色补全 + 能量 + NMF；立体声" if multi
                 else "16k 自动互补 + NMF；48k 旧 NPSS")
@@ -331,7 +342,9 @@ class App:
             support = float(self.support_var.get())
             backend = self.backend_var.get()
             workers = max(1, min(16, int(self.workers_var.get())))
-            content = "voice" if self.content_var.get() == "声音为主" else "music"
+            vstr = max(0.0, min(1.0, float(self.vstr_var.get())))
+            content = {"声音为主": "voice", "人声提取": "speech"}.get(
+                self.content_var.get(), "music")
             complement = True
             loops = max(2, min(8, int(self.loops_var.get())))
             multi = bool(self.multi_var.get())
@@ -346,10 +359,13 @@ class App:
                 self.log_line("48k 全带 + 立体声 + 跨区拓扑：16k gate + 8k+ 保留")
             elif content == "music" and proc_sr <= 16000:
                 self.log_line("提示：音乐会带限到 8k；建议处理采样率 48k")
+            if content == "speech":
+                self.log_line("人声提取：基频/谐波/共振峰/音节调制 → 只保留人声，强度 %.2f" % vstr)
             if content == "voice" and proc_sr != 16000:
                 self.log_line("提示：声音模式的 NMF 字典是 16k；当前 %d Hz 只跑 NPSS" % proc_sr)
         except Exception:
             passes, chunk, proc_sr, iterations, inject, auto, theta, support, backend, workers = 3, 20.0, 16000, 1, 0.0, True, 0.95, 0.60, "specsub", 4
+            vstr = 0.8
             profile = "freq"
             target = None
             content = "music"
@@ -360,7 +376,7 @@ class App:
         t = threading.Thread(target=self.worker,
                              args=(src, dst, mode, fam, passes, chunk, proc_sr,
                                    iterations, inject, auto, theta, support,
-                                   backend, workers, content, complement, loops, multi, fast, profile),
+                                   backend, workers, content, complement, loops, multi, fast, profile, vstr),
                              daemon=True)
         t.start()
 
@@ -388,7 +404,7 @@ class App:
         except Exception as e:
             self.q.put(("error", str(e)))
 
-    def worker(self, src, dst, mode, fam, passes, chunk, proc_sr, iterations, inject, auto, theta, support, backend, workers, content, complement, loops, multi, fast, profile="freq", target=None):
+    def worker(self, src, dst, mode, fam, passes, chunk, proc_sr, iterations, inject, auto, theta, support, backend, workers, content, complement, loops, multi, fast, profile="freq", vstr=0.8, target=None):
         try:
             if mode == "video" and self.frames_var.get():
                 import av_denoise
@@ -397,12 +413,14 @@ class App:
                     av_denoise.denoise_video_traj(
                         src, dst, sigma=None, audio_target=target, fast=fast,
                         radius=(2 if fast else 3), content=content,
+                        voice_strength=vstr,
                         log=lambda s: self.q.put(("log", s)))
                 except Exception as e:
                     self.q.put(("log", "轨迹累积失败，退回逐帧降噪：%s" % e))
                     av_denoise.denoise_video(
                         src, dst, sigma=None, audio_target=target, fast=fast,
-                        content=content, log=lambda s: self.q.put(("log", s)))
+                        content=content, voice_strength=vstr,
+                        log=lambda s: self.q.put(("log", s)))
                 self.q.put(("done", dst))
                 return
             engine.process_file(
@@ -412,7 +430,7 @@ class App:
                 theta=theta, support=support, backend=backend, workers=workers,
                 content_mode=content, complement=complement, loops=loops,
                 multi_stat=multi, fast=fast, target_nr_db=target,
-                view_profile=profile,
+                view_profile=profile, voice_strength=vstr,
                 progress=lambda d, t: self.q.put(("progress", d, t)),
                 log=lambda s: self.q.put(("log", s)))
             self.q.put(("done", dst))

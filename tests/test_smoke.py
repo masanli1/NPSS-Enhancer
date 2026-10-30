@@ -24,3 +24,21 @@ def test_denoise_smoke():
     assert len(y) == len(x)
     assert np.all(np.isfinite(y))
     assert float(np.max(np.abs(y))) <= 1.01
+
+
+def test_voice_features_and_separation():
+    import voice_sep as V
+    sr = 16000
+    t = np.arange(sr * 2) / sr
+    f0 = 140.0
+    sig = sum((0.6 ** k) * np.sin(2 * np.pi * f0 * k * t) for k in range(1, 8))
+    env = (0.5 + 0.5 * np.sin(2 * np.pi * 3.0 * t)) ** 2
+    x = (0.25 * sig * env).astype(np.float32)
+    x += 0.01 * np.random.default_rng(0).standard_normal(len(t)).astype(np.float32)
+    y, F = V.separate(x, sr, use_base=False, strength=0.8)
+    assert len(y) == len(x)
+    assert np.all(np.isfinite(y))
+    v = F["voicing"] > 0.3
+    assert v.mean() > 0.3
+    f0_est = float(np.median(F["f0"][v]))
+    assert abs(f0_est - f0) / f0 < 0.1

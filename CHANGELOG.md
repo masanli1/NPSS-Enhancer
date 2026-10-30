@@ -1,5 +1,22 @@
 # Changelog
 
+## 3.3.0 — 2026-10-30
+
+- **人声特征提取与分离（新“人声提取”模式）.** `GUI/voice_sep.py`，纯 numpy：
+  倒谱候选 + Viterbi 基频（70–360 Hz）、时变谐波梳、LPC-16 共振峰、
+  2–8 Hz 音节调制、浊音核心分段、整段音乐守卫。
+  分离写成 `G = G_npss × G_voice`：不再只问“结构稳不稳”，
+  而是问“这一格像不像人在说话”。
+- VoiceBank-DEMAND 42 对（固定步长抽样）：SI-SDR **13.94**（v2.7 多统计
+  13.67 / voice 13.69），PESQ 2.345（2.351 / 2.330），STOI 0.9203
+  （0.9226 / 0.9235）。
+- 非人声抑制（8 s 合成素材）：纯音乐 **−32.0 dB**（音乐守卫：有音高无音节 →
+  整段落地板），白噪 −42.7 dB，traffic −10.4 dB；干净语音单独过一遍
+  SI-SDR 22.25 dB / PESQ 3.88。
+- GUI 增加“人声提取（只留人声）”与“人声强度”（0–1，默认 0.8）；
+  引擎新增 `content_mode="speech"`；日志打印 F0/浊音/语音段/F1/F2。
+- 文档 `docs/VOICE_SEPARATION.md`；复现脚本 `scripts/eval_voice_sep.py`。
+
 ## 3.2.0 — 2026-10-30
 
 - **Voice tab: timbre extraction and conversion, our own code.** `voice_transform.py`

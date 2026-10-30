@@ -4,6 +4,8 @@ Author: [masanli1](https://github.com/masanli1) · Repository: [NPSS-Enhancer](h
 
 [中文说明](README.zh-CN.md)
 
+> **v3.3: voice extraction — F0 / harmonics / formants / syllabic modulation, keep speech and drop the rest.**
+>
 > **v3.1.0: video denoising accumulates along motion trajectories (+2.2 dB over per-frame, no foreground masking); images keep the full-sliding 3σ filter.**
 >
 > **Images:** 8x8 block DCT, 3-sigma threshold, 16-phase cycle-spinning — 27.90 / 24.08 dB on Kodak at sigma=25 / 50.
@@ -34,6 +36,33 @@ noise floor, DC/low band protected, ensembling over perturbations (here:
 16 sub-pixel grid phases) — but the structure decision is made by coefficient
 magnitude rather than by pivot stability; the stability variants were measured
 and did not beat it on images (see `图像降噪/NPSS-Best/README.md`).
+
+## v3.3: voice extraction
+
+Denoising asks "how stable is this structure". Voice extraction asks "does this
+time-frequency cell look like a human voice". Pure numpy, no model, no training:
+
+- **F0:** cepstral candidates + Viterbi, 70–360 Hz, octave-jump penalty.
+- **Harmonic comb:** time-varying, with a controlled floor between the teeth.
+- **Formants:** per-frame LPC-16 roots (F1/F2/F3).
+- **Syllabic modulation:** share of frame-energy envelope in 2–8 Hz — speech has
+  syllables, sustained chords do not.
+- **Voice core:** harmonic *and* syllabic *and* periodic *and* above the noise
+  floor; dilated into speech segments so unvoiced consonants ride along;
+  a tonal, non-syllabic clip (BGM only) goes to the floor as a whole.
+
+```
+G = G_npss × [ floor + (1-floor) × VAD × harmonic_comb ] ^ strength
+```
+
+On 42 fixed-stride VoiceBank-DEMAND pairs: SI-SDR **13.94** (v2.7 13.67),
+PESQ 2.345 (2.351), STOI 0.9203 (0.9226). Rejection on 8 s synthetic inputs:
+music −32 dB, white noise −43 dB, traffic −10.4 dB; clean speech alone keeps
+SI-SDR 22.25 dB / PESQ 3.88.
+
+GUI: 模式 → 人声提取（只留人声）, 参数 → 人声强度 (0–1, default 0.8).
+Details and the reproducible script: [`docs/VOICE_SEPARATION.md`](docs/VOICE_SEPARATION.md),
+[`scripts/eval_voice_sep.py`](scripts/eval_voice_sep.py).
 
 ## Results (30 held-out VoiceBank-DEMAND pairs, 16 kHz)
 
@@ -116,6 +145,7 @@ python npss_parallel.py input.mp3 output.m4a --proc-sr 16000
 - **Four-view invariant discovery:** energy / frequency / morphology / structure stability measured across the multi-family perturbation bank (white, Student-t, impulsive, AM, bursty, traffic), not just white-noise levels.
 - **Fast mode (v2.7):** K=6, 2-pass; about 2.5× faster; music 13.62 / voice 13.84.
 - **Stereo parallel:** L/R processed concurrently; 12 s stereo drops from ~26 s to ~6.9 s.
+- **Voice-feature extraction (v3.3):** cepstral Viterbi F0, harmonic comb, LPC formants, syllabic modulation and a voice-core VAD; `G = G_npss × G_voice`.
 - **Training-free general mode**; optional small NMF dictionary for voice.
 - **GUI + CLI**, parallel chunks, waveform/spectrogram, PESQ/STOI evaluation.
 
@@ -155,6 +185,7 @@ python GUI/npss_gui.py
 |---|---|---|
 | Music / general | multi-stat Gmin + 50/50 blend | full-band + stereo: 16k gate + 8k+ soft (×0.70) |
 | Voice | multi-stat Gmin + blend + 40% NMF | full-band + stereo: 16k gate + 8k+ soft (×0.70) |
+| Voice extraction (v3.3) | multi-stat gate × voice gate (F0 / comb / VAD) | same path, analysed at 16 kHz |
 
 - GUI has a **“多统计 Gmin（v2.1）”** checkbox; default on.
 - 48k no longer falls back: 16k multi-stat for 0–8k + soft-gained 8k+ high band; stereo L/R; choose 48k for music.
