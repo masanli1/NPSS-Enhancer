@@ -114,3 +114,27 @@ def test_process_file_mono_level_preserved(tmp_path):
     db_in = 20 * float(np.log10(np.sqrt(np.mean(xin.astype(np.float64) ** 2)) + 1e-12))
     db_out = 20 * float(np.log10(np.sqrt(np.mean(yout.astype(np.float64) ** 2)) + 1e-12))
     assert abs(db_out - db_in) < 1.0, f"电平偏差 {db_out - db_in:+.2f} dB（应 < 1 dB）"
+
+
+def test_speed_presets():
+    """fast 支持三档：False=完整(10,3) / True=(6,2) / "turbo"=(3,1)。"""
+    import multi_stat as MS
+
+    assert MS._speed_params(False) == (MS.K, MS.PASSES) == (10, 3)
+    assert MS._speed_params(True) == (6, 2)
+    assert MS._speed_params("turbo") == (3, 1)
+    assert MS._speed_params("TURBO ") == (3, 1)
+
+
+def test_turbo_produces_valid_output():
+    """turbo 档位仍然输出有限、等长、未削顶的信号。"""
+    import multi_stat as MS
+
+    sr = 16000
+    t = np.arange(sr * 2) / sr
+    x = (0.2 * np.sin(2 * np.pi * 180 * t) +
+         0.02 * np.random.default_rng(0).standard_normal(len(t))).astype(np.float32)
+    y = MS.denoise_best(x, sr, fast="turbo")
+    assert len(y) == len(x)
+    assert np.all(np.isfinite(y))
+    assert float(np.max(np.abs(y))) <= 1.01

@@ -1,5 +1,21 @@
 # Changelog
 
+## 3.4.0 — 2026-11-20
+
+- **新增极速档位 `fast="turbo"`：约 3 倍速.** 原来 `fast` 只有布尔值，
+  内部固定 (klevels=6, passes=2)；现在 `fast` 也接受 `"turbo"`，走 (3, 1)。
+
+  2 vCPU 实测（samples/demo_noisy.wav，20 秒片段）：
+
+  | 档位 | 耗时 | 输出 SI-SDR | 相对提升 |
+  |---|---|---|---|
+  | `fast=True`（6,2） | 7.6 s | 9.49 dB | +4.47 dB |
+  | `fast="turbo"`（3,1） | **2.5 s** | 8.83 dB | +3.81 dB |
+
+  即 **3 倍速度换 0.66 dB**，适合长音频或吞吐优先的场景。默认不变。
+- `_speed_params()` 统一解析 fast，`SPEED_PRESETS` 表集中维护档位；
+  新增 `test_speed_presets` 与 `test_turbo_produces_valid_output`。
+
 ## 3.3.4 — 2026-11-20
 
 - **Fix: 单声道文件整体音量掉 3 dB.** `process_file` 固定用

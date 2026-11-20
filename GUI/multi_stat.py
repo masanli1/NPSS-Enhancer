@@ -289,6 +289,26 @@ def _stoi_guard(G, M, alpha=0.25):
     return np.clip(G * np.power(r[band_of], float(alpha)), 0.0, 1.0).astype(np.float32)
 
 
+SPEED_PRESETS = {
+    "turbo": (3, 1),   # 极速：3 个扰动级、1 个 pass，约 3 倍速，SI-SDR 约 -0.7 dB
+    "fast": (6, 2),    # 快速（fast=True）
+}
+
+
+def _speed_params(fast):
+    """把 fast 解析成 (klevels, passes)。
+
+    fast=False  → 模块默认（完整级联）
+    fast=True   → (6, 2)
+    fast="turbo"→ (3, 1)
+    """
+    if isinstance(fast, str):
+        key = fast.strip().lower()
+        if key in SPEED_PRESETS:
+            return SPEED_PRESETS[key]
+    return (6, 2) if fast else (K, PASSES)
+
+
 def loads(x, sr=SR, voice=False, seed=7, low_floor=None, fast=False, energy=True,
           view_profile="freq", view_beta=0.5, stoi_guard=False, stoi_alpha=0.25):
     """All intermediate state needed to re-gate without recomputation.
@@ -302,8 +322,7 @@ def loads(x, sr=SR, voice=False, seed=7, low_floor=None, fast=False, energy=True
         raise ValueError("loads() expects %d Hz" % SR)
     if low_floor is None:
         low_floor = LOW_FLOOR_VOICE if voice else LOW_FLOOR_16
-    kl = 6 if fast else K
-    ps = 2 if fast else PASSES
+    kl, ps = _speed_params(fast)
     X, M, gb, _, _, _ = C.prepare(x, NFFT, HOP, 1.5, 0.05, "specsub")
     Ss, Gs = _single_gate(x, X, M, gb, low_floor, kl, ps, energy)
     Sg, Gg = _gmin_gate(x, X, M, gb, seed, low_floor, kl, ps, energy)
