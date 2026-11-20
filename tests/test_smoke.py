@@ -51,3 +51,37 @@ def test_voice_sep_length_48k():
     x = np.random.default_rng(1).normal(0, 0.02, sr * 2 + 1).astype(np.float32)
     y, _ = V.separate(x, sr, use_base=False)
     assert len(y) == len(x)
+
+
+def test_process_file_propagates_fast(tmp_path, monkeypatch):
+    """单声道输入也要把 fast 透传给 denoise_array（v3.3.3 修复）。
+
+    原实现只在「左右声道不同」的分支传 fast，单声道 / 双声道相同的文件会
+    静默跑完整多统计，实测 RTF 从 1.35 掉到 3.24。
+    """
+    import pytest
+    import common as C
+
+    if not engine.find_ffmpeg():
+        pytest.skip("需要 ffmpeg（imageio-ffmpeg 或系统安装）")
+
+    sr = 16000
+    t = np.arange(sr) / sr
+    rng = np.random.default_rng(0)
+    x = (0.2 * np.sin(2 * np.pi * 180 * t) +
+         0.01 * rng.standard_normal(len(t))).astype(np.float32)
+    src = tmp_path / "mono.wav"
+    C.write_wav(str(src), x, sr)
+
+    seen = {}
+
+    def spy(x_in, sr_in, **kw):
+        seen.update(kw)
+        return np.zeros(len(x_in), dtype=np.float32)
+
+    monkeypatch.setattr(engine, "denoise_array", spy)
+    engine.process_file(str(src), str(tmp_path / "out.wav"), mode="audio",
+                        content_mode="music", multi_stat=True, fast=True,
+                        workers=1, chunk_sec=20)
+
+    assert seen.get("fast") is True

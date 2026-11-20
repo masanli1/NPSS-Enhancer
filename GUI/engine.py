@@ -411,7 +411,7 @@ def process_file(src, dst, mode="auto", family="correlated", passes=3,
                                multi_stat=multi_stat, progress=progress,
                                target_nr_db=target_nr_db, info_out=vinfo,
                                view_profile=view_profile, view_beta=view_beta,
-                               voice_strength=voice_strength)
+                               voice_strength=voice_strength, fast=fast)
             y = np.repeat(y0[:, None], 2, axis=1).astype(np.float32)
         else:
             def run_ch(ci):
