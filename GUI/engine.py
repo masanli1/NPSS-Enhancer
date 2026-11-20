@@ -62,6 +62,31 @@ def find_ffmpeg():
     return None
 
 
+def probe_channels(src):
+    """源音频的声道数。
+
+    ffmpeg 把单声道上混成立体声（-ac 2）时会按功率守恒衰减 -3 dB，
+    直接用 -ac 2 提取会让整体音量凭空掉一半。所以要先看源到底几个声道。
+    """
+    ff = find_ffmpeg()
+    if not ff:
+        return 2
+    r = subprocess.run([ff, "-hide_banner", "-i", src],
+                       capture_output=True, text=True)
+    info = r.stderr or ""
+    for line in info.splitlines():
+        if "Audio:" not in line:
+            continue
+        if "mono" in line:
+            return 1
+        if "stereo" in line:
+            return 2
+        m = re.search(r"(\d+) channels", line)
+        if m:
+            return int(m.group(1))
+    return 2
+
+
 def is_video(path):
     return os.path.splitext(path)[1].lower() in VIDEO_EXTS
 
@@ -384,7 +409,9 @@ def process_file(src, dst, mode="auto", family="correlated", passes=3,
         out16 = os.path.join(tmp, "out16.wav")
         if log:
             log("提取音频 → %d Hz 立体声" % proc_sr)
-        extract_audio(src, in16, proc_sr, log, channels=2)
+        # 按源声道数提取：单声道上混成立体声会按功率守恒衰减 -3 dB
+        _src_ch = probe_channels(src)
+        extract_audio(src, in16, proc_sr, log, channels=1 if _src_ch == 1 else 2)
         x, sr = C.read_wav_stereo(in16)
         if x.ndim == 1:
             x = x[:, None]

@@ -85,3 +85,32 @@ def test_process_file_propagates_fast(tmp_path, monkeypatch):
                         workers=1, chunk_sec=20)
 
     assert seen.get("fast") is True
+
+
+def test_process_file_mono_level_preserved(tmp_path):
+    """单声道文件不能被 -ac 2 上混吃掉 3 dB（v3.3.4 修复）。
+
+    ffmpeg 把 mono 上混到 stereo 时按功率守恒，每个声道 -3 dB；
+    如果提取阶段固定用 channels=2，整条管线的输出音量会比输入低一半。
+    """
+    import pytest
+    import common as C
+
+    if not engine.find_ffmpeg():
+        pytest.skip("需要 ffmpeg")
+
+    sr = 16000
+    t = np.arange(sr * 2) / sr
+    x = (0.2 * np.sin(2 * np.pi * 300 * t)).astype(np.float32)
+    src = tmp_path / "mono.wav"
+    C.write_wav(str(src), x, sr)
+
+    out = tmp_path / "out.wav"
+    engine.process_file(str(src), str(out), mode="audio", content_mode="music",
+                        multi_stat=True, fast=True, workers=1, proc_sr=48000)
+
+    xin, _ = C.read_wav(str(src))
+    yout, _ = C.read_wav(str(out))
+    db_in = 20 * float(np.log10(np.sqrt(np.mean(xin.astype(np.float64) ** 2)) + 1e-12))
+    db_out = 20 * float(np.log10(np.sqrt(np.mean(yout.astype(np.float64) ** 2)) + 1e-12))
+    assert abs(db_out - db_in) < 1.0, f"电平偏差 {db_out - db_in:+.2f} dB（应 < 1 dB）"

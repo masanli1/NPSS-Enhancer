@@ -1,5 +1,20 @@
 # Changelog
 
+## 3.3.4 — 2026-11-20
+
+- **Fix: 单声道文件整体音量掉 3 dB.** `process_file` 固定用
+  `extract_audio(..., channels=2)`，而 ffmpeg 把 mono 上混成 stereo 时按功率守恒
+  每个声道衰减 -3 dB，于是**所有单声道素材的处理结果都只有原来一半的幅度**。
+  之后 `denoise_fullband` 的 RMS 对齐是相对这个已被削弱的信号做的，补不回来。
+
+  修复：新增 `probe_channels(src)` 探测源声道，按源声道数提取；单声道走
+  `channels=1`，最后仍由 `write_wav_stereo` 复制成立体声（复制不衰减）。
+
+  实测（16 kHz 单声道，48 kHz 处理）：修复前输出 -30.80 dB（输入 -27.30），
+  修复后 -27.80 dB，差值从 -3.50 dB 收敛到 -0.50 dB（仅剩 mp3 编码损失）。
+
+- 新增回归测试 `test_process_file_mono_level_preserved`：断言处理前后电平差 < 1 dB。
+
 ## 3.3.3 — 2026-11-20
 
 - **Fix: 单声道文件静默忽略 `fast`，速度差 2.3 倍.** `engine.process_file` 在
